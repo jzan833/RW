@@ -9,7 +9,7 @@
 | ID | လုပ်မည့်အရာ | မှီခိုတဲ့ task | ပြီးကြောင်းသက်သေ | Status |
 | --- | --- | --- | --- | --- |
 | T00 | Viewer cookie `Max-Age` နှင့် အများဆုံး supported monitoring duration ကို ဆုံးဖြတ်ပြီး requirements/security docs နှစ်ခုလုံးတွင် တူညီစွာရေးမည်။ | — | Docs နှစ်ခုတွင် numeric expiry တစ်ခုတည်းရှိပြီး active session အတွင်း re-entry စည်းကမ်း မဆန့်ကျင်ကြောင်း review လုပ်ပြီးမှတ်ထားသည်။ | မစသေး |
-| T01 | React + TypeScript + Vite frontend အခြေခံနှင့် camera/viewer screen route များ တည်ဆောက်မည်။ | — | Frontend build အောင်မြင်ပြီး laptop/phone viewport နှစ်ခုတွင် role screen နှစ်ခု ဖွင့်နိုင်သည်။ | လုပ်ဆောင်နေ — scaffold/build ပြီး၊ role screen မရေးရသေး |
+| T01 | React + TypeScript + Vite frontend အခြေခံနှင့် camera/viewer screen route များ တည်ဆောက်မည်။ | — | Frontend build အောင်မြင်ပြီး laptop/phone viewport နှစ်ခုတွင် role screen နှစ်ခု ဖွင့်နိုင်သည်။ | လုပ်ဆောင်နေ — Home/role routes နှင့် local runtime test ပြီး၊ laptop/phone viewport လက်တွေ့စစ်ရန် ကျန် |
 | T02 | Node + Express + Socket.IO backend အခြေခံနှင့် health endpoint တည်ဆောက်မည်။ | — | Local health request အောင်မြင်၊ Socket.IO client တစ်ခု ချိတ်/ဖြုတ်နိုင်ပြီး server error မရှိ။ | ပြီး |
 | T03 | VPS ပေါ် Caddy HTTPS/WSS ဖြင့် frontend နှင့် backend ကို public domain မှ ဝင်နိုင်အောင် deploy လုပ်မည်။ | T01, T02 | Laptop နှင့် phone မှ HTTPS certificate မှန်ကန်စွာ site ဖွင့်နိုင်ပြီး health API နှင့် WSS handshake အောင်မြင်သည်။ | မစသေး |
 | T04 | coturn STUN/TURN server နှင့် public ports/firewall၊ test အတွက် short-lived credentials ကို ပြင်ဆင်မည်။ | T03 | Test client မှ STUN candidate နှင့် TURN `relay` candidate ရသည်; credential မရှိလျှင် TURN allocation မရ။ | မစသေး |
@@ -51,4 +51,11 @@
 - `npm.cmd run build`: web နှင့် server နှစ်ခုလုံး pass။
 - Local server `/api/health`: HTTP 200, `{"status":"ok"}`။
 - Vite development proxy `/api/health`: HTTP 200။ Socket.IO ကို proxy မှတစ်ဆင့် WebSocket ဖြင့် ချိတ်/ဖြုတ်နိုင်သည်။
-- T01 ၏ camera/viewer role screen များ မရေးရသေးသဖြင့် T01 ကို **ပြီး** ဟု မမှတ်ထား။
+- T01 ၏ Home page၊ Camera Mode နှင့် Viewer Mode route placeholder များ ရေးပြီး unit test ဖြင့်စစ်ထားသည်။ Camera access, pairing နှင့် live media မပါ။ Laptop/phone viewport ပေါ် လက်တွေ့စစ်မပြီးသေးသဖြင့် T01 ကို **ပြီး** ဟု မမှတ်ထား။
+
+## T01 verification — ၂၀၂၆-၁၁-၁၇
+
+- `npm.cmd run typecheck`: web နှင့် server နှစ်ခုလုံး pass။
+- `npm.cmd test`: web Home page tests ၃ ခုနှင့် server health/Socket.IO tests ၂ ခု၊ စုစုပေါင်း ၅ ခု pass။
+- `npm.cmd run build`: web နှင့် server နှစ်ခုလုံး pass။
+- `npm.cmd run dev`: server ကို port 3000 တွင်၊ Vite web app ကို port 5174 တွင် run လုပ်ပြီး `/api/health` proxy HTTP 200 နှင့် Socket.IO WebSocket proxy connection ကို စစ်ထားသည်။ Port 5173 သည် ယခင် local dev process က အသုံးပြုထားသောကြောင့် Vite က 5174 ကို အလိုအလျောက်ရွေးခဲ့သည်။

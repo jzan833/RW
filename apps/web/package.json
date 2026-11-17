@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -18,8 +19,11 @@
     "@types/qrcode": "^1.5.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@testing-library/react": "^16.3.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "jsdom": "^26.1.0",
     "typescript": "^6.0.0",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^4.0.0"
   }
 }

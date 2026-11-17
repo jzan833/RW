@@ -7,10 +7,15 @@
     "apps/server"
   ],
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names server,web --prefix name \"npm run dev:server\" \"npm run dev:web\"",
     "dev:web": "npm run dev -w @rw/web",
     "dev:server": "npm run dev -w @rw/server",
+    "test": "npm run test --workspaces",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   },
   "engines": {
     "node": ">=24 <27",
