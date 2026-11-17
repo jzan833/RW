@@ -352,7 +352,7 @@ describe("T08/T10 viewer pairing and re-entry UI", () => {
   it("scans a same-site pairing QR and then asks for the separate PIN", async () => {
     window.history.replaceState({}, "", "/viewer");
     const controls = { stop: vi.fn() };
-    const decodeSpy = vi.spyOn(BrowserMultiFormatReader.prototype, "decodeFromVideoDevice").mockImplementation(async (_deviceId, _video, callback) => {
+    const decodeSpy = vi.spyOn(BrowserMultiFormatReader.prototype, "decodeFromConstraints").mockImplementation(async (_constraints, _video, callback) => {
       callback({ getText: () => `${window.location.origin}/viewer?invite=${"i".repeat(43)}` } as never, undefined, controls);
       return controls;
     });

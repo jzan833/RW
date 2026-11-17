@@ -877,7 +877,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     void import("@zxing/browser").then(({ BrowserMultiFormatReader }) => {
       if (cancelled) return undefined;
       const reader = new BrowserMultiFormatReader();
-      return reader.decodeFromVideoDevice(undefined, videoElement, (result, _error, activeControls) => {
+      return reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: "environment" } } }, videoElement, (result, _error, activeControls) => {
         if (!result || cancelled) return;
         const scannedInvite = inviteIdFromPairingText(result.getText());
         if (!scannedInvite) {
