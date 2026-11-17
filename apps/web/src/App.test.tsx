@@ -346,3 +346,55 @@ describe("T07 camera pairing display", () => {
     expect(media.extraTrack.stop).toHaveBeenCalledOnce();
   });
 });
+
+describe("T08/T10 viewer pairing and re-entry UI", () => {
+  it("submits the QR invite with a six-digit PIN and clears the invite URL", async () => {
+    const inviteId = "i".repeat(43);
+    window.history.replaceState({}, "", `/viewer?invite=${inviteId}`);
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ status: "paired" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    const pinInput = screen.getByLabelText("Six-digit pairing PIN") as HTMLInputElement;
+    fireEvent.change(pinInput, { target: { value: "12a3456" } });
+    expect(pinInput.value).toBe("123456");
+    fireEvent.click(screen.getByRole("button", { name: "Pair viewer" }));
+
+    expect(await screen.findByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/viewer");
+    expect(window.location.search).toBe("");
+    const pairingCall = fetchMock.mock.calls[0];
+    expect(pairingCall?.[0] === "/api/pairing").toBe(true);
+    expect(pairingCall?.[1]?.credentials === "include").toBe(true);
+    const body = JSON.parse(String(pairingCall?.[1]?.body)) as Record<string, unknown>;
+    expect(body.inviteId === inviteId).toBe(true);
+    expect(body.pin === "123456").toBe(true);
+  });
+
+  it("rejects an invalid invite link before sending a PIN", () => {
+    window.history.replaceState({}, "", "/viewer?invite=short");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(screen.getByRole("alert").textContent).toContain("This pairing link is invalid.");
+    expect(screen.queryByLabelText("Six-digit pairing PIN")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a returning viewer through the server-side cookie check", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ status: "paired" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/viewer");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    const sessionCall = fetchMock.mock.calls[0];
+    expect(sessionCall?.[0] === "/api/viewer-session").toBe(true);
+    expect(sessionCall?.[1]?.credentials === "include").toBe(true);
+  });
+});

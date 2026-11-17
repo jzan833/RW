@@ -3,7 +3,11 @@ import type { AddressInfo } from "node:net";
 import { io as createClient, type Socket } from "socket.io-client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRwServer } from "../src/index.ts";
-import { INVITE_TTL_MS, SESSION_TTL_MS } from "../src/session-store.ts";
+import {
+  INVITE_REGENERATE_LIMIT,
+  INVITE_TTL_MS,
+  SESSION_TTL_MS
+} from "../src/session-store.ts";
 
 let rwServer = createRwServer();
 let socket: Socket | undefined;
@@ -204,12 +208,16 @@ async function pairViewer(
   server: typeof rwServer,
   inviteId: string,
   pin: string,
-  bodyOverride?: unknown
+  bodyOverride?: unknown,
+  sourceIp?: string
 ) {
   const address = server.httpServer.address() as AddressInfo;
   return fetch(`http://127.0.0.1:${address.port}/api/pairing`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(sourceIp ? { "X-Forwarded-For": sourceIp } : {})
+    },
     body: JSON.stringify(bodyOverride ?? { inviteId, pin })
   });
 }
@@ -299,5 +307,210 @@ describe("T08 PIN pairing", () => {
     expect(unknown.status).toBe(400);
     await expect(malformed.json()).resolves.toEqual({ error: "Pairing unavailable" });
     await expect(unknown.json()).resolves.toEqual({ error: "Pairing unavailable" });
+  });
+});
+
+describe("T09 pairing abuse limits", () => {
+  it("invalidates an invite after five wrong PIN attempts", async () => {
+    const session = await createMonitoringSession();
+    const wrongPin = session.invite.pin === "000000" ? "000001" : "000000";
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const rejected = await pairViewer(
+        rwServer,
+        session.invite.inviteId,
+        wrongPin
+      );
+      expect(rejected.status).toBe(400);
+    }
+
+    const correctAfterLockout = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    expect(correctAfterLockout.status).toBe(400);
+    await expect(correctAfterLockout.json()).resolves.toEqual({ error: "Pairing unavailable" });
+  });
+
+  it("limits one source IP to twenty pairing requests per five minutes", async () => {
+    const sourceIp = "198.51.100.10";
+    for (let requestNumber = 0; requestNumber < 20; requestNumber += 1) {
+      const response = await pairViewer(
+        rwServer,
+        "u".repeat(43),
+        "000000",
+        undefined,
+        sourceIp
+      );
+      expect(response.status).toBe(400);
+    }
+
+    const limited = await pairViewer(
+      rwServer,
+      "u".repeat(43),
+      "000000",
+      undefined,
+      sourceIp
+    );
+    const differentSource = await pairViewer(
+      rwServer,
+      "u".repeat(43),
+      "000000",
+      undefined,
+      "198.51.100.11"
+    );
+
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    await expect(limited.json()).resolves.toEqual({ error: "Too many requests" });
+    expect(differentSource.status).toBe(400);
+  });
+
+  it("limits invite regeneration to three requests per session per minute", async () => {
+    const session = await createMonitoringSession();
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${address.port}/api/monitoring-sessions/${session.sessionId}/invite`;
+    const headers = { Authorization: `Bearer ${session.cameraToken}` };
+
+    for (let requestNumber = 0; requestNumber < INVITE_REGENERATE_LIMIT; requestNumber += 1) {
+      const response = await fetch(endpoint, { method: "POST", headers });
+      expect(response.status).toBe(201);
+    }
+    const limited = await fetch(endpoint, { method: "POST", headers });
+
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    await expect(limited.json()).resolves.toEqual({ error: "Too many requests" });
+  });
+
+  it("does not let invalid camera tokens consume regeneration capacity", async () => {
+    const session = await createMonitoringSession();
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${address.port}/api/monitoring-sessions/${session.sessionId}/invite`;
+
+    for (let requestNumber = 0; requestNumber < 4; requestNumber += 1) {
+      const rejected = await fetch(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${"x".repeat(43)}` }
+      });
+      expect(rejected.status).toBe(404);
+    }
+
+    for (let requestNumber = 0; requestNumber < INVITE_REGENERATE_LIMIT; requestNumber += 1) {
+      const accepted = await fetch(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.cameraToken}` }
+      });
+      expect(accepted.status).toBe(201);
+    }
+  });
+});
+
+const viewerCookieHeader = (response: Response) => {
+  const setCookie = response.headers.get("set-cookie");
+  if (!setCookie) throw new Error("Expected a viewer cookie");
+  return {
+    attributes: setCookie,
+    requestHeader: setCookie.split(";", 1)[0]
+  };
+};
+
+describe("T10 persistent viewer cookie", () => {
+  it("sets a twelve-hour Secure HttpOnly SameSite cookie after pairing", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    const body = await paired.json() as Record<string, unknown>;
+    const cookie = viewerCookieHeader(paired);
+    const attributes = cookie.attributes.toLowerCase();
+
+    expect(paired.status).toBe(200);
+    expect(Object.keys(body)).toEqual(["status"]);
+    expect(cookie.requestHeader.startsWith("__Host-rw_viewer=")).toBe(true);
+    expect(attributes.includes("max-age=43200")).toBe(true);
+    expect(attributes.includes("httponly")).toBe(true);
+    expect(attributes.includes("secure")).toBe(true);
+    expect(attributes.includes("samesite=strict")).toBe(true);
+    expect(attributes.includes("path=/")).toBe(true);
+    expect(attributes.includes("domain=")).toBe(false);
+  });
+
+  it("validates a persisted cookie while a browser without it remains unauthorized", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    const cookie = viewerCookieHeader(paired);
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${address.port}/api/viewer-session`;
+
+    const reopenedBrowser = await fetch(endpoint, {
+      headers: { Cookie: cookie.requestHeader }
+    });
+    const differentBrowser = await fetch(
+      `${endpoint}?invite=${encodeURIComponent(session.invite.inviteId)}`
+    );
+
+    expect(reopenedBrowser.status).toBe(200);
+    await expect(reopenedBrowser.json()).resolves.toEqual({ status: "paired" });
+    expect(differentBrowser.status).toBe(401);
+    await expect(differentBrowser.json()).resolves.toEqual({
+      error: "Viewer session unavailable"
+    });
+  });
+
+  it("rejects and clears the viewer cookie after the camera session stops", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    const cookie = viewerCookieHeader(paired);
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const sessionEndpoint = `http://127.0.0.1:${address.port}/api/monitoring-sessions/${session.sessionId}`;
+    await fetch(sessionEndpoint, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.cameraToken}` }
+    });
+
+    const rejected = await fetch(`http://127.0.0.1:${address.port}/api/viewer-session`, {
+      headers: { Cookie: cookie.requestHeader }
+    });
+    const clearedCookie = rejected.headers.get("set-cookie")?.toLowerCase() ?? "";
+
+    expect(rejected.status).toBe(401);
+    expect(clearedCookie.startsWith("__host-rw_viewer=")).toBe(true);
+    expect(clearedCookie.includes("max-age=0")).toBe(true);
+  });
+
+  it("does not restore a viewer cookie in a fresh server instance", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    const cookie = viewerCookieHeader(paired);
+    const replacement = createRwServer({ sessionSecret: "test-only-viewer-restart-secret" });
+    replacement.httpServer.listen(0, "127.0.0.1");
+    await once(replacement.httpServer, "listening");
+
+    try {
+      const address = replacement.httpServer.address() as AddressInfo;
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/viewer-session`, {
+        headers: { Cookie: cookie.requestHeader }
+      });
+      expect(response.status).toBe(401);
+    } finally {
+      replacement.io.close();
+      await new Promise<void>((resolve) => replacement.httpServer.close(() => resolve()));
+    }
   });
 });

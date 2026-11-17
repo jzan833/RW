@@ -7,6 +7,7 @@ type Locale = "en" | "my";
 type Theme = "dark" | "light";
 type CameraState = "idle" | "requesting" | "preview" | "error";
 type PairingState = "idle" | "creating" | "ready" | "regenerating";
+type ViewerPairingState = "idle" | "submitting" | "paired";
 
 type CameraSession = {
   sessionId: string;
@@ -91,7 +92,17 @@ const messages = {
     pairingTitle: "Pairing will happen here",
     pairingStep1: "Scan the QR code on the camera device.",
     pairingStep2: "Enter the six-digit PIN shown there.",
-    pairingStep3: "View the room live after pairing."
+    pairingStep3: "View the room live after pairing.",
+    enterPinTitle: "Enter the camera PIN",
+    enterPinHelp: "Enter the separate six-digit PIN shown beside the QR code on the camera.",
+    pinInputLabel: "Six-digit pairing PIN",
+    pairViewer: "Pair viewer",
+    pairingViewer: "Pairing securely…",
+    viewerPaired: "Viewer paired",
+    viewerPairedHelp: "This browser is authorized. Live connection setup comes next.",
+    pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
+    pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
+    invalidInviteViewer: "This pairing link is invalid. Scan a new QR code from the camera."
   },
   my: {
     brandName: "Room Watch",
@@ -162,7 +173,17 @@ const messages = {
     pairingTitle: "Pairing ကို ဒီနေရာမှာလုပ်ပါမယ်",
     pairingStep1: "Camera device ပေါ်က QR code ကို scan လုပ်ပါ။",
     pairingStep2: "အဲဒီမှာပြထားတဲ့ ဂဏန်းခြောက်လုံး PIN ကိုထည့်ပါ။",
-    pairingStep3: "Pair ပြီးလျှင် အခန်းကို live ကြည့်ပါ။"
+    pairingStep3: "Pair ပြီးလျှင် အခန်းကို live ကြည့်ပါ။",
+    enterPinTitle: "Camera PIN ကိုထည့်ပါ",
+    enterPinHelp: "Camera ပေါ် QR code ဘေးမှာပြထားတဲ့ သီးခြား ဂဏန်းခြောက်လုံး PIN ကိုထည့်ပါ။",
+    pinInputLabel: "ဂဏန်းခြောက်လုံး Pairing PIN",
+    pairViewer: "Viewer ကို Pair လုပ်မယ်",
+    pairingViewer: "လုံခြုံစွာ Pair လုပ်နေသည်…",
+    viewerPaired: "Viewer Pair လုပ်ပြီးပြီ",
+    viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live connection ကို နောက်အဆင့်မှာချိတ်ပါမယ်။",
+    pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
+    invalidInviteViewer: "ဒီ pairing link မမှန်ပါ။ Camera မှ QR code အသစ်ကို scan လုပ်ပါ။"
   }
 } as const;
 
@@ -743,6 +764,64 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
 function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSettings) {
   const copy = messages[settings.locale];
+  const inviteId = new URLSearchParams(window.location.search).get("invite") ?? "";
+  const inviteValid = opaqueValuePattern.test(inviteId);
+  const [pin, setPin] = useState("");
+  const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
+  const [viewerError, setViewerError] = useState(inviteId && !inviteValid ? copy.invalidInviteViewer : "");
+
+  useEffect(() => {
+    if (inviteId || pairingState === "paired") return;
+    let cancelled = false;
+    void fetch("/api/viewer-session", {
+      headers: { Accept: "application/json" },
+      credentials: "include"
+    }).then((response) => {
+      if (!cancelled && response.ok) setPairingState("paired");
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteId, pairingState]);
+
+  const submitPairing = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!inviteValid || !/^\d{6}$/.test(pin)) return;
+    setPairingState("submitting");
+    setViewerError("");
+
+    try {
+      const response = await fetch("/api/pairing", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
+        body: JSON.stringify({ inviteId, pin })
+      });
+      if (!response.ok) {
+        setPairingState("idle");
+        setViewerError(response.status === 429 ? copy.pairingLimitedViewer : copy.pairingUnavailableViewer);
+        return;
+      }
+
+      setPin("");
+      setPairingState("paired");
+      window.history.replaceState({}, "", "/viewer");
+    } catch {
+      setPairingState("idle");
+      setViewerError(copy.pairingUnavailableViewer);
+    }
+  };
+
+  const statusText = pairingState === "paired" ? copy.viewerPaired : copy.waitingPair;
+  const statusClass = pairingState === "paired"
+    ? "status-preview"
+    : viewerError
+      ? "status-error"
+      : "status-idle";
+
   return (
     <main className="page-shell">
       <div className="tech-grid" aria-hidden="true" />
@@ -756,17 +835,55 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
             <p className="intro">{copy.viewerIntro}</p>
           </div>
           <section className="setup-panel viewer-panel" aria-labelledby="viewer-status-title">
-            <div className="status-row status-idle">
+            <div className={`status-row ${statusClass}`}>
               <span className="status-dot" aria-hidden="true" />
-              <p id="viewer-status-title">{copy.waitingPair}</p>
+              <p id="viewer-status-title">{statusText}</p>
             </div>
-            <DeviceIcon kind="viewer" large />
-            <h2>{copy.pairingTitle}</h2>
-            <ol className="step-list">
-              <li><span>1</span> {copy.pairingStep1}</li>
-              <li><span>2</span> {copy.pairingStep2}</li>
-              <li><span>3</span> {copy.pairingStep3}</li>
-            </ol>
+
+            {pairingState === "paired" ? (
+              <div className="viewer-paired">
+                <DeviceIcon kind="viewer" large />
+                <h2>{copy.viewerPaired}</h2>
+                <p>{copy.viewerPairedHelp}</p>
+              </div>
+            ) : inviteValid ? (
+              <form className="viewer-pairing-form" onSubmit={(event) => void submitPairing(event)}>
+                <DeviceIcon kind="viewer" large />
+                <h2>{copy.enterPinTitle}</h2>
+                <p>{copy.enterPinHelp}</p>
+                <label>
+                  <span>{copy.pinInputLabel}</span>
+                  <input
+                    aria-label={copy.pinInputLabel}
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    pattern="[0-9]{6}"
+                    placeholder="000000"
+                    value={pin}
+                    onChange={(event) => setPin(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
+                  />
+                </label>
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={pin.length !== 6 || pairingState === "submitting"}
+                >
+                  {pairingState === "submitting" ? copy.pairingViewer : copy.pairViewer}
+                </button>
+              </form>
+            ) : (
+              <>
+                <DeviceIcon kind="viewer" large />
+                <h2>{copy.pairingTitle}</h2>
+                <ol className="step-list">
+                  <li><span>1</span> {copy.pairingStep1}</li>
+                  <li><span>2</span> {copy.pairingStep2}</li>
+                  <li><span>3</span> {copy.pairingStep3}</li>
+                </ol>
+              </>
+            )}
+            {viewerError ? <div className="camera-error" role="alert"><strong>!</strong><p>{viewerError}</p></div> : null}
           </section>
         </section>
       </div>

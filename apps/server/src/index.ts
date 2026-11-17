@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { Server } from "socket.io";
 import { z } from "zod";
 import { MonitoringSessionStore } from "./session-store.js";
+import { SlidingWindowRateLimiter } from "./rate-limiter.js";
 
 type CreateRwServerOptions = {
   serveWeb?: boolean;
@@ -21,6 +22,10 @@ const pairingBodySchema = z.object({
   pin: z.string().regex(/^\d{6}$/)
 }).strict();
 const pairingJson = express.json({ limit: "1kb", strict: true });
+const PAIRING_IP_LIMIT = 20;
+const PAIRING_IP_WINDOW_MS = 5 * 60 * 1_000;
+const VIEWER_COOKIE_NAME = "__Host-rw_viewer";
+const VIEWER_COOKIE_MAX_AGE_SECONDS = 43_200;
 
 export function createRwServer({
   serveWeb = false,
@@ -29,6 +34,12 @@ export function createRwServer({
 }: CreateRwServerOptions = {}) {
   const app = express();
   const sessionStore = new MonitoringSessionStore({ secret: sessionSecret, now });
+  const pairingIpLimiter = new SlidingWindowRateLimiter({
+    limit: PAIRING_IP_LIMIT,
+    windowMs: PAIRING_IP_WINDOW_MS,
+    now
+  });
+  app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use((_request, response, next) => {
     response.setHeader("Referrer-Policy", "no-referrer");
@@ -57,13 +68,17 @@ export function createRwServer({
       return;
     }
 
-    const invite = sessionStore.regenerateInvite(credentials.sessionId, credentials.cameraToken);
-    if (!invite) {
+    const result = sessionStore.regenerateInvite(credentials.sessionId, credentials.cameraToken);
+    if (result.status === "unavailable") {
       unavailable(response);
       return;
     }
+    if (result.status === "rate_limited") {
+      tooManyRequests(response, result.retryAfterSeconds);
+      return;
+    }
 
-    response.status(201).json({ invite });
+    response.status(201).json({ invite: result.invite });
   });
 
   app.delete("/api/monitoring-sessions/:sessionId", (request, response) => {
@@ -78,6 +93,11 @@ export function createRwServer({
 
   app.post("/api/pairing", pairingJson, (request, response) => {
     response.setHeader("Cache-Control", "no-store");
+    const rateLimit = pairingIpLimiter.consume(request.ip || request.socket.remoteAddress || "unknown");
+    if (!rateLimit.allowed) {
+      tooManyRequests(response, rateLimit.retryAfterSeconds);
+      return;
+    }
     const parsedBody = pairingBodySchema.safeParse(request.body);
     if (!parsedBody.success) {
       pairingUnavailable(response);
@@ -87,6 +107,22 @@ export function createRwServer({
     const paired = sessionStore.pair(parsedBody.data.inviteId, parsedBody.data.pin);
     if (!paired) {
       pairingUnavailable(response);
+      return;
+    }
+
+    setViewerCookie(response, paired.sessionId, paired.viewerToken);
+    response.json({ status: "paired" });
+  });
+
+  app.get("/api/viewer-session", (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const credentials = viewerCredentials(request.headers.cookie);
+    if (
+      !credentials ||
+      !sessionStore.validateViewer(credentials.sessionId, credentials.viewerToken)
+    ) {
+      clearViewerCookie(response);
+      response.status(401).json({ error: "Viewer session unavailable" });
       return;
     }
 
@@ -140,6 +176,49 @@ function unavailable(response: express.Response) {
 
 function pairingUnavailable(response: express.Response) {
   response.status(400).json({ error: "Pairing unavailable" });
+}
+
+function tooManyRequests(response: express.Response, retryAfterSeconds: number) {
+  response.setHeader("Retry-After", retryAfterSeconds.toString());
+  response.status(429).json({ error: "Too many requests" });
+}
+
+function setViewerCookie(response: express.Response, sessionId: string, viewerToken: string) {
+  response.cookie(VIEWER_COOKIE_NAME, `${sessionId}.${viewerToken}`, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    path: "/",
+    maxAge: VIEWER_COOKIE_MAX_AGE_SECONDS * 1_000
+  });
+}
+
+function clearViewerCookie(response: express.Response) {
+  response.cookie(VIEWER_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    path: "/",
+    maxAge: 0
+  });
+}
+
+function viewerCredentials(cookieHeader: string | undefined) {
+  if (!cookieHeader) return undefined;
+  for (const entry of cookieHeader.split(";")) {
+    const separator = entry.indexOf("=");
+    if (separator < 0 || entry.slice(0, separator).trim() !== VIEWER_COOKIE_NAME) continue;
+    let value: string;
+    try {
+      value = decodeURIComponent(entry.slice(separator + 1).trim());
+    } catch {
+      return undefined;
+    }
+    const match = /^([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/.exec(value);
+    if (!match) return undefined;
+    return { sessionId: match[1], viewerToken: match[2] };
+  }
+  return undefined;
 }
 
 const port = Number(process.env.PORT ?? 3000);

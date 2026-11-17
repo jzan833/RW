@@ -17,6 +17,8 @@ type MonitoringSessionRecord = {
   createdAt: number;
   expiresAt: number;
   invite: InviteRecord;
+  inviteRegeneratedAt: number[];
+  viewerTokenVerifier?: Buffer;
 };
 
 export type PublicInvite = {
@@ -34,7 +36,16 @@ export type CreatedMonitoringSession = {
 
 export type PairingResult = {
   sessionId: string;
+  viewerToken: string;
 };
+
+export type RegenerateInviteResult =
+  | { status: "ok"; invite: PublicInvite }
+  | { status: "rate_limited"; retryAfterSeconds: number }
+  | { status: "unavailable" };
+
+export const INVITE_REGENERATE_LIMIT = 3;
+export const INVITE_REGENERATE_WINDOW_MS = 60 * 1_000;
 
 type MonitoringSessionStoreOptions = {
   secret: string | Uint8Array;
@@ -64,7 +75,8 @@ export class MonitoringSessionStore {
       cameraTokenVerifier: this.#verifier("camera", sessionId, cameraToken),
       createdAt,
       expiresAt: createdAt + SESSION_TTL_MS,
-      invite: generatedInvite.record
+      invite: generatedInvite.record,
+      inviteRegeneratedAt: []
     });
     this.#inviteSessions.set(generatedInvite.record.id, sessionId);
 
@@ -76,15 +88,33 @@ export class MonitoringSessionStore {
     };
   }
 
-  regenerateInvite(sessionId: string, cameraToken: string): PublicInvite | undefined {
+  regenerateInvite(sessionId: string, cameraToken: string): RegenerateInviteResult {
     const session = this.#authorizedSession(sessionId, cameraToken);
-    if (!session) return undefined;
+    if (!session) return { status: "unavailable" };
 
-    const generatedInvite = this.#createInvite(session.id, this.#now());
+    const now = this.#now();
+    const cutoff = now - INVITE_REGENERATE_WINDOW_MS;
+    session.inviteRegeneratedAt = session.inviteRegeneratedAt.filter(
+      (timestamp) => timestamp > cutoff
+    );
+    if (session.inviteRegeneratedAt.length >= INVITE_REGENERATE_LIMIT) {
+      return {
+        status: "rate_limited",
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil(
+            (session.inviteRegeneratedAt[0] + INVITE_REGENERATE_WINDOW_MS - now) / 1_000
+          )
+        )
+      };
+    }
+
+    session.inviteRegeneratedAt.push(now);
+    const generatedInvite = this.#createInvite(session.id, now);
     this.#inviteSessions.delete(session.invite.id);
     session.invite = generatedInvite.record;
     this.#inviteSessions.set(generatedInvite.record.id, session.id);
-    return generatedInvite.publicInvite;
+    return { status: "ok", invite: generatedInvite.publicInvite };
   }
 
   pair(inviteId: string, pin: string): PairingResult | undefined {
@@ -109,12 +139,33 @@ export class MonitoringSessionStore {
       !timingSafeEqual(candidate, invite.pinVerifier)
     ) {
       invite.failedAttempts += 1;
+      if (invite.failedAttempts >= 5) {
+        invite.consumed = true;
+        this.#inviteSessions.delete(inviteId);
+      }
       return undefined;
     }
 
     invite.consumed = true;
     this.#inviteSessions.delete(inviteId);
-    return { sessionId };
+    const viewerToken = randomBytes(32).toString("base64url");
+    session.viewerTokenVerifier = this.#verifier("viewer", sessionId, viewerToken);
+    return { sessionId, viewerToken };
+  }
+
+  validateViewer(sessionId: string, viewerToken: string): boolean {
+    const session = this.#sessions.get(sessionId);
+    if (!session || !session.viewerTokenVerifier) return false;
+    if (session.expiresAt <= this.#now()) {
+      this.#deleteSession(sessionId);
+      return false;
+    }
+
+    const candidate = this.#verifier("viewer", sessionId, viewerToken);
+    return (
+      candidate.length === session.viewerTokenVerifier.length &&
+      timingSafeEqual(candidate, session.viewerTokenVerifier)
+    );
   }
 
   stop(sessionId: string, cameraToken: string): boolean {
