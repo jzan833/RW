@@ -1,7 +1,125 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Mode = "home" | "camera" | "viewer";
 type AppPath = "/" | "/camera" | "/viewer";
+type Locale = "en" | "my";
+type Theme = "dark" | "light";
+type CameraState = "idle" | "requesting" | "preview" | "error";
+
+const messages = {
+  en: {
+    brandName: "Room Watch",
+    brandTagline: "Private live room link",
+    goHome: "Go to RW home",
+    chooseRole: "Choose a device role",
+    cameraMode: "Camera mode",
+    viewerMode: "Viewer mode",
+    themeLight: "Use light theme",
+    themeDark: "Use dark theme",
+    homeEyebrow: "Secure device link",
+    homeTitle: "How would you like to use RW?",
+    homeIntro: "Choose one role for this device. Open RW on a second device to use the other role.",
+    useCamera: "Use as camera",
+    useCameraHelp: "Place this laptop or phone in the room.",
+    useViewer: "Use as viewer",
+    useViewerHelp: "Watch a paired room from this device.",
+    liveOnly: "Live only.",
+    noSave: "RW does not save video or audio.",
+    back: "Back to roles",
+    cameraEyebrow: "Camera device",
+    cameraTitle: "Set up this room camera",
+    cameraIntro: "Preview the view on this device before you create a monitoring session.",
+    idleStatus: "Camera is off",
+    requestingStatus: "Waiting for camera permission",
+    previewStatus: "Local preview on",
+    errorStatus: "Camera needs attention",
+    previewOnly: "Preview only — monitoring has not started",
+    idleTitle: "Check the room view first",
+    idleText: "Camera access starts only after you press Start camera. Microphone access is not requested.",
+    startCamera: "Start camera",
+    startingCamera: "Starting camera…",
+    stopCamera: "Stop camera",
+    tryAgain: "Try again",
+    selectCamera: "Camera device",
+    cameraFallback: "Camera",
+    resolution: "Active resolution",
+    autoResolution: "Automatic",
+    localPreview: "Local camera preview",
+    phoneNote: "On a phone, choose the front or back camera here. Keep the screen on and RW in the foreground.",
+    noRecording: "This preview stays on this device and is not recorded.",
+    errorDenied: "Camera access was blocked. Allow camera access for this site in browser settings, then try again.",
+    errorNotFound: "No camera was found. Connect or enable a camera, then try again.",
+    errorBusy: "The camera is busy or unavailable. Close other apps using it, then try again.",
+    errorSecurity: "Camera access needs a secure HTTPS page. Reopen RW using its secure address.",
+    errorUnsupported: "This browser cannot access a camera. Try a current version of Chrome, Edge, or Safari.",
+    errorInterrupted: "The camera stopped unexpectedly. Check the device and try again.",
+    errorGeneric: "RW could not start this camera. Check browser permission and the camera, then try again.",
+    viewerEyebrow: "Viewer device",
+    viewerTitle: "Watch a paired room",
+    viewerIntro: "Use the QR code and PIN shown on the room camera when pairing becomes available.",
+    waitingPair: "Waiting to pair",
+    pairingTitle: "Pairing will happen here",
+    pairingStep1: "Scan the QR code on the camera device.",
+    pairingStep2: "Enter the six-digit PIN shown there.",
+    pairingStep3: "View the room live after pairing."
+  },
+  my: {
+    brandName: "Room Watch",
+    brandTagline: "လုံခြုံသော live room link",
+    goHome: "RW ပင်မစာမျက်နှာသို့ သွားရန်",
+    chooseRole: "Device အမျိုးအစားရွေးပါ",
+    cameraMode: "Camera mode",
+    viewerMode: "Viewer mode",
+    themeLight: "Light mode သုံးရန်",
+    themeDark: "Dark mode သုံးရန်",
+    homeEyebrow: "လုံခြုံသော device link",
+    homeTitle: "RW ကို ဘယ်လိုအသုံးပြုမလဲ?",
+    homeIntro: "ဒီ device အတွက် role တစ်ခုရွေးပါ။ အခြား role ကို ဒုတိယ device မှာ RW ဖွင့်ပြီးသုံးနိုင်ပါတယ်။",
+    useCamera: "Camera အဖြစ်သုံးမယ်",
+    useCameraHelp: "Laptop သို့မဟုတ် ဖုန်းကို အခန်းထဲထားပါ။",
+    useViewer: "Viewer အဖြစ်သုံးမယ်",
+    useViewerHelp: "Pair လုပ်ထားသောအခန်းကို ဒီ device မှကြည့်ပါ။",
+    liveOnly: "Live သီးသန့်။",
+    noSave: "RW က video နဲ့ audio ကို မသိမ်းပါ။",
+    back: "Role ရွေးချယ်မှုသို့ ပြန်ရန်",
+    cameraEyebrow: "Camera device",
+    cameraTitle: "အခန်း Camera ကိုပြင်ဆင်ပါ",
+    cameraIntro: "Monitoring session မစတင်မီ ဒီ device ပေါ်မှာ မြင်ကွင်းကို preview ကြည့်ပါ။",
+    idleStatus: "Camera ပိတ်ထားသည်",
+    requestingStatus: "Camera permission ကို စောင့်နေသည်",
+    previewStatus: "Local preview ဖွင့်ထားသည်",
+    errorStatus: "Camera ကို စစ်ဆေးရန်လိုသည်",
+    previewOnly: "Preview သာဖြစ်သည် — monitoring မစတင်သေးပါ",
+    idleTitle: "အခန်းမြင်ကွင်းကို အရင်စစ်ပါ",
+    idleText: "Start camera နှိပ်မှသာ camera permission တောင်းပါမယ်။ Microphone permission မတောင်းပါ။",
+    startCamera: "Camera စဖွင့်မယ်",
+    startingCamera: "Camera ဖွင့်နေသည်…",
+    stopCamera: "Camera ပိတ်မယ်",
+    tryAgain: "ပြန်စမ်းမယ်",
+    selectCamera: "Camera device",
+    cameraFallback: "Camera",
+    resolution: "လက်ရှိ resolution",
+    autoResolution: "အလိုအလျောက်",
+    localPreview: "Local camera preview",
+    phoneNote: "ဖုန်းမှာ front သို့မဟုတ် back camera ကို ဒီနေရာကရွေးပါ။ Screen ဖွင့်ထားပြီး RW ကို foreground မှာထားပါ။",
+    noRecording: "ဒီ preview က ဒီ device ပေါ်မှာပဲရှိပြီး record မလုပ်ပါ။",
+    errorDenied: "Camera access ကိုပိတ်ထားပါတယ်။ Browser settings မှာ ဒီ site အတွက် camera ကို Allow လုပ်ပြီး ပြန်စမ်းပါ။",
+    errorNotFound: "Camera မတွေ့ပါ။ Camera ကိုချိတ်ဆက် သို့မဟုတ် ဖွင့်ပြီး ပြန်စမ်းပါ။",
+    errorBusy: "Camera ကို အခြား app ကသုံးနေခြင်း သို့မဟုတ် အသုံးမပြုနိုင်ခြင်းဖြစ်နိုင်ပါတယ်။ အခြား app ကိုပိတ်ပြီး ပြန်စမ်းပါ။",
+    errorSecurity: "Camera သုံးရန် HTTPS လုံခြုံသောစာမျက်နှာလိုပါတယ်။ RW secure address ကို ပြန်ဖွင့်ပါ။",
+    errorUnsupported: "ဒီ browser က camera ကို မသုံးနိုင်ပါ။ နောက်ဆုံး Chrome, Edge သို့မဟုတ် Safari နဲ့စမ်းပါ။",
+    errorInterrupted: "Camera ရုတ်တရက်ရပ်သွားပါတယ်။ Device ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    errorGeneric: "ဒီ camera ကို RW မဖွင့်နိုင်ပါ။ Browser permission နဲ့ camera ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    viewerEyebrow: "Viewer device",
+    viewerTitle: "Pair လုပ်ထားသောအခန်းကိုကြည့်ပါ",
+    viewerIntro: "Pairing ရသောအခါ room camera မှာပြထားတဲ့ QR code နဲ့ PIN ကိုသုံးပါ။",
+    waitingPair: "Pair လုပ်ရန်စောင့်နေသည်",
+    pairingTitle: "Pairing ကို ဒီနေရာမှာလုပ်ပါမယ်",
+    pairingStep1: "Camera device ပေါ်က QR code ကို scan လုပ်ပါ။",
+    pairingStep2: "အဲဒီမှာပြထားတဲ့ ဂဏန်းခြောက်လုံး PIN ကိုထည့်ပါ။",
+    pairingStep3: "Pair ပြီးလျှင် အခန်းကို live ကြည့်ပါ။"
+  }
+} as const;
 
 const pathToMode = (path: string): Mode => {
   if (path === "/camera") return "camera";
@@ -9,8 +127,18 @@ const pathToMode = (path: string): Mode => {
   return "home";
 };
 
+const initialLocale = (): Locale => localStorage.getItem("rw-locale") === "my" ? "my" : "en";
+
+const initialTheme = (): Theme => {
+  const stored = localStorage.getItem("rw-theme");
+  if (stored === "dark" || stored === "light") return stored;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+};
+
 export default function App() {
   const [mode, setMode] = useState<Mode>(() => pathToMode(window.location.pathname));
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+  const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     const handlePopState = () => setMode(pathToMode(window.location.pathname));
@@ -18,101 +146,287 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.lang = locale === "my" ? "my" : "en";
+    localStorage.setItem("rw-theme", theme);
+    localStorage.setItem("rw-locale", locale);
+  }, [locale, theme]);
+
   const navigate = (path: AppPath) => {
     window.history.pushState({}, "", path);
     setMode(pathToMode(path));
   };
 
-  if (mode === "camera") {
-    return <CameraScreen onHome={() => navigate("/")} />;
-  }
+  const settings = { locale, setLocale, theme, setTheme };
 
-  if (mode === "viewer") {
-    return <ViewerScreen onHome={() => navigate("/")} />;
-  }
-
-  return <HomeScreen onNavigate={navigate} />;
+  if (mode === "camera") return <CameraScreen onHome={() => navigate("/")} {...settings} />;
+  if (mode === "viewer") return <ViewerScreen onHome={() => navigate("/")} {...settings} />;
+  return <HomeScreen onNavigate={navigate} {...settings} />;
 }
 
-function AppHeader({ onHome, mode }: { onHome?: () => void; mode?: "Camera" | "Viewer" }) {
+type HeaderProps = {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  onHome?: () => void;
+  mode?: "camera" | "viewer";
+};
+
+function AppHeader({ locale, setLocale, theme, setTheme, onHome, mode }: HeaderProps) {
+  const copy = messages[locale];
+  const modeLabel = mode === "camera" ? copy.cameraMode : mode === "viewer" ? copy.viewerMode : copy.chooseRole;
+
   return (
     <header className="app-header">
-      <button className="brand" type="button" onClick={onHome} aria-label="Go to RW home">
+      <button className="brand" type="button" onClick={onHome} aria-label={copy.goHome}>
         <span aria-hidden="true" className="brand-mark">RW</span>
         <span className="brand-copy">
-          <strong>Room Watch</strong>
-          <small>Live room monitoring</small>
+          <strong>{copy.brandName}</strong>
+          <small>{copy.brandTagline}</small>
         </span>
       </button>
-      {mode ? <p className="mode-label">{mode} mode</p> : <p className="mode-label">Choose a device role</p>}
+      <div className="header-tools">
+        <p className="mode-label">{modeLabel}</p>
+        <div className="language-switch" aria-label="Language">
+          <button type="button" aria-pressed={locale === "en"} onClick={() => setLocale("en")}>EN</button>
+          <button type="button" aria-pressed={locale === "my"} onClick={() => setLocale("my")}>MYA</button>
+        </div>
+        <button
+          className="theme-switch"
+          type="button"
+          aria-label={theme === "dark" ? copy.themeLight : copy.themeDark}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          <span aria-hidden="true">{theme === "dark" ? "☀" : "◐"}</span>
+        </button>
+      </div>
     </header>
   );
 }
 
-function HomeScreen({ onNavigate }: { onNavigate: (path: AppPath) => void }) {
+type ScreenSettings = Omit<HeaderProps, "mode" | "onHome">;
+
+function HomeScreen({ onNavigate, ...settings }: { onNavigate: (path: AppPath) => void } & ScreenSettings) {
+  const copy = messages[settings.locale];
   return (
     <main className="page-shell">
+      <div className="tech-grid" aria-hidden="true" />
       <div className="app-surface">
-        <AppHeader />
+        <AppHeader {...settings} />
         <section className="home-hero" aria-labelledby="home-title">
-          <p className="eyebrow">Set up this device</p>
-          <h1 id="home-title">How would you like to use RW?</h1>
-          <p className="intro">Choose one role for this device. You can open RW on a second device to use the other role.</p>
-
+          <p className="eyebrow"><span aria-hidden="true">●</span> {copy.homeEyebrow}</p>
+          <h1 id="home-title">{copy.homeTitle}</h1>
+          <p className="intro">{copy.homeIntro}</p>
           <div className="mode-grid">
             <button className="mode-button camera-choice" type="button" onClick={() => onNavigate("/camera")}>
               <DeviceIcon kind="camera" />
-              <span className="mode-copy">
-                <strong>Use as camera</strong>
-                <small>Place this laptop or phone in the room.</small>
-              </span>
+              <span className="mode-copy"><strong>{copy.useCamera}</strong><small>{copy.useCameraHelp}</small></span>
               <span className="button-arrow" aria-hidden="true">→</span>
             </button>
-
             <button className="mode-button viewer-choice" type="button" onClick={() => onNavigate("/viewer")}>
               <DeviceIcon kind="viewer" />
-              <span className="mode-copy">
-                <strong>Use as viewer</strong>
-                <small>Watch a paired room from this device.</small>
-              </span>
+              <span className="mode-copy"><strong>{copy.useViewer}</strong><small>{copy.useViewerHelp}</small></span>
               <span className="button-arrow" aria-hidden="true">→</span>
             </button>
           </div>
         </section>
-
         <aside className="privacy-note" aria-label="Privacy note">
           <span className="privacy-dot" aria-hidden="true" />
-          <p><strong>Live only.</strong> RW does not save video or audio.</p>
+          <p><strong>{copy.liveOnly}</strong> {copy.noSave}</p>
         </aside>
       </div>
     </main>
   );
 }
 
-function CameraScreen({ onHome }: { onHome: () => void }) {
+function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSettings) {
+  const copy = messages[settings.locale];
+  const [cameraState, setCameraState] = useState<CameraState>("idle");
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [resolution, setResolution] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const operationRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const stopTracks = (stream: MediaStream | null) => {
+    stream?.getTracks().forEach((track) => track.stop());
+  };
+
+  const clearStream = () => {
+    stopTracks(streamRef.current);
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      operationRef.current += 1;
+      stopTracks(streamRef.current);
+      streamRef.current = null;
+    };
+  }, []);
+
+  const errorFor = (error: unknown) => {
+    if (!(error instanceof DOMException)) return copy.errorGeneric;
+    if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") return copy.errorDenied;
+    if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") return copy.errorNotFound;
+    if (error.name === "NotReadableError" || error.name === "TrackStartError" || error.name === "AbortError") return copy.errorBusy;
+    if (error.name === "SecurityError") return copy.errorSecurity;
+    return copy.errorGeneric;
+  };
+
+  const openCamera = async (deviceId?: string) => {
+    const operation = operationRef.current + 1;
+    operationRef.current = operation;
+    setCameraState("requesting");
+    setErrorMessage("");
+    clearStream();
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrorMessage(copy.errorUnsupported);
+      setCameraState("error");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: deviceId ? { deviceId: { exact: deviceId } } : true
+      });
+
+      if (!mountedRef.current || operationRef.current !== operation) {
+        stopTracks(stream);
+        return;
+      }
+
+      const videoTrack = stream.getVideoTracks()[0];
+      const trackSettings = videoTrack?.getSettings?.() ?? {};
+      streamRef.current = stream;
+      videoTrack?.addEventListener("ended", () => {
+        if (!mountedRef.current || streamRef.current !== stream) return;
+        operationRef.current += 1;
+        clearStream();
+        setResolution("");
+        setErrorMessage(copy.errorInterrupted);
+        setCameraState("error");
+      }, { once: true });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        void videoRef.current.play().catch(() => undefined);
+      }
+
+      setSelectedDeviceId(trackSettings.deviceId ?? deviceId ?? "");
+      setResolution(trackSettings.width && trackSettings.height ? `${trackSettings.width} × ${trackSettings.height}` : copy.autoResolution);
+      setCameraState("preview");
+
+      if (navigator.mediaDevices.enumerateDevices) {
+        const availableDevices = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+        if (mountedRef.current && operationRef.current === operation) {
+          setDevices(availableDevices.filter((candidate) => candidate.kind === "videoinput"));
+        }
+      }
+    } catch (error) {
+      if (!mountedRef.current || operationRef.current !== operation) return;
+      setResolution("");
+      setErrorMessage(errorFor(error));
+      setCameraState("error");
+    }
+  };
+
+  const stopCamera = () => {
+    operationRef.current += 1;
+    clearStream();
+    setResolution("");
+    setErrorMessage("");
+    setCameraState("idle");
+  };
+
+  const statusText = cameraState === "requesting"
+    ? copy.requestingStatus
+    : cameraState === "preview"
+      ? copy.previewStatus
+      : cameraState === "error"
+        ? copy.errorStatus
+        : copy.idleStatus;
+
   return (
     <main className="page-shell">
-      <div className="app-surface role-surface">
-        <AppHeader mode="Camera" onHome={onHome} />
-        <section className="role-layout" aria-labelledby="camera-title">
-          <div className="role-intro">
-            <button className="text-button" type="button" onClick={onHome}>← Back to roles</button>
-            <p className="eyebrow">Camera device</p>
-            <h1 id="camera-title">Set up this room camera</h1>
-            <p className="intro">Keep this device in the room and leave RW open while monitoring is in progress.</p>
+      <div className="tech-grid" aria-hidden="true" />
+      <div className="app-surface role-surface camera-surface">
+        <AppHeader mode="camera" onHome={onHome} {...settings} />
+        <section className="camera-layout" aria-labelledby="camera-title">
+          <div className="role-intro camera-copy">
+            <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
+            <p className="eyebrow"><span aria-hidden="true">●</span> {copy.cameraEyebrow}</p>
+            <h1 id="camera-title">{copy.cameraTitle}</h1>
+            <p className="intro">{copy.cameraIntro}</p>
+            <div className="camera-readout" aria-live="polite">
+              <div className={`status-row status-${cameraState}`}>
+                <span className="status-dot" aria-hidden="true" />
+                <p>{statusText}</p>
+              </div>
+              <p className="preview-boundary">{copy.previewOnly}</p>
+            </div>
+
+            {cameraState === "preview" && devices.length > 0 ? (
+              <label className="device-select">
+                <span>{copy.selectCamera}</span>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(event) => {
+                    const nextDeviceId = event.currentTarget.value;
+                    setSelectedDeviceId(nextDeviceId);
+                    void openCamera(nextDeviceId);
+                  }}
+                >
+                  {devices.map((device, index) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `${copy.cameraFallback} ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <div className="camera-actions">
+              {cameraState === "preview" ? (
+                <button className="primary-button stop-button" type="button" onClick={stopCamera}>{copy.stopCamera}</button>
+              ) : (
+                <button className="primary-button" type="button" disabled={cameraState === "requesting"} onClick={() => void openCamera()}>
+                  {cameraState === "requesting" ? copy.startingCamera : cameraState === "error" ? copy.tryAgain : copy.startCamera}
+                </button>
+              )}
+            </div>
+            {errorMessage ? <div className="camera-error" role="alert"><strong>!</strong><p>{errorMessage}</p></div> : null}
           </div>
 
-          <section className="setup-panel camera-panel" aria-labelledby="camera-status-title">
-            <div className="status-row">
-              <span className="status-dot status-idle" aria-hidden="true" />
-              <p id="camera-status-title">Not monitoring</p>
+          <section className="preview-panel">
+            <div className={`preview-frame preview-${cameraState}`}>
+              <video ref={videoRef} autoPlay muted playsInline aria-label={copy.localPreview} />
+              {cameraState !== "preview" ? (
+                <div className="preview-placeholder">
+                  <DeviceIcon kind="camera" large />
+                  <h2>{copy.idleTitle}</h2>
+                  <p>{copy.idleText}</p>
+                </div>
+              ) : null}
+              <span className="frame-corner frame-corner-one" aria-hidden="true" />
+              <span className="frame-corner frame-corner-two" aria-hidden="true" />
             </div>
-            <DeviceIcon kind="camera" large />
-            <h2>Camera setup is ready</h2>
-            <p>Camera access has not started. The next step will ask for permission and show a local preview.</p>
+            <div className="preview-meta">
+              <span><b>{copy.resolution}</b>{resolution || copy.autoResolution}</span>
+              <span><b>REC</b>{copy.noRecording}</span>
+            </div>
             <div className="info-callout">
               <span aria-hidden="true">i</span>
-              <p>For phone use, keep the screen on and RW in the foreground.</p>
+              <p>{copy.phoneNote}</p>
             </div>
           </section>
         </section>
@@ -121,30 +435,31 @@ function CameraScreen({ onHome }: { onHome: () => void }) {
   );
 }
 
-function ViewerScreen({ onHome }: { onHome: () => void }) {
+function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSettings) {
+  const copy = messages[settings.locale];
   return (
     <main className="page-shell">
+      <div className="tech-grid" aria-hidden="true" />
       <div className="app-surface role-surface">
-        <AppHeader mode="Viewer" onHome={onHome} />
+        <AppHeader mode="viewer" onHome={onHome} {...settings} />
         <section className="role-layout" aria-labelledby="viewer-title">
           <div className="role-intro">
-            <button className="text-button" type="button" onClick={onHome}>← Back to roles</button>
-            <p className="eyebrow">Viewer device</p>
-            <h1 id="viewer-title">Watch a paired room</h1>
-            <p className="intro">Use the QR code and PIN shown on the room camera when pairing becomes available.</p>
+            <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
+            <p className="eyebrow"><span aria-hidden="true">●</span> {copy.viewerEyebrow}</p>
+            <h1 id="viewer-title">{copy.viewerTitle}</h1>
+            <p className="intro">{copy.viewerIntro}</p>
           </div>
-
           <section className="setup-panel viewer-panel" aria-labelledby="viewer-status-title">
-            <div className="status-row">
-              <span className="status-dot status-idle" aria-hidden="true" />
-              <p id="viewer-status-title">Waiting to pair</p>
+            <div className="status-row status-idle">
+              <span className="status-dot" aria-hidden="true" />
+              <p id="viewer-status-title">{copy.waitingPair}</p>
             </div>
             <DeviceIcon kind="viewer" large />
-            <h2>Pairing will happen here</h2>
+            <h2>{copy.pairingTitle}</h2>
             <ol className="step-list">
-              <li><span>1</span> Scan the QR code on the camera device.</li>
-              <li><span>2</span> Enter the six-digit PIN shown there.</li>
-              <li><span>3</span> View the room live after pairing.</li>
+              <li><span>1</span> {copy.pairingStep1}</li>
+              <li><span>2</span> {copy.pairingStep2}</li>
+              <li><span>3</span> {copy.pairingStep3}</li>
             </ol>
           </section>
         </section>
@@ -155,7 +470,6 @@ function ViewerScreen({ onHome }: { onHome: () => void }) {
 
 function DeviceIcon({ kind, large = false }: { kind: "camera" | "viewer"; large?: boolean }) {
   const className = `device-icon${large ? " device-icon-large" : ""}`;
-
   if (kind === "camera") {
     return (
       <span className={className} aria-hidden="true">
@@ -167,7 +481,6 @@ function DeviceIcon({ kind, large = false }: { kind: "camera" | "viewer"; large?
       </span>
     );
   }
-
   return (
     <span className={className} aria-hidden="true">
       <svg viewBox="0 0 48 48" focusable="false">
