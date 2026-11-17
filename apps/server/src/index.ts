@@ -16,6 +16,11 @@ type CreateRwServerOptions = {
 const processSessionSecret = process.env.SESSION_SECRET?.trim() || randomBytes(32);
 const opaqueIdSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const bearerTokenSchema = z.string().regex(/^Bearer [A-Za-z0-9_-]{43}$/);
+const pairingBodySchema = z.object({
+  inviteId: opaqueIdSchema,
+  pin: z.string().regex(/^\d{6}$/)
+}).strict();
+const pairingJson = express.json({ limit: "1kb", strict: true });
 
 export function createRwServer({
   serveWeb = false,
@@ -71,6 +76,39 @@ export function createRwServer({
     response.status(204).end();
   });
 
+  app.post("/api/pairing", pairingJson, (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const parsedBody = pairingBodySchema.safeParse(request.body);
+    if (!parsedBody.success) {
+      pairingUnavailable(response);
+      return;
+    }
+
+    const paired = sessionStore.pair(parsedBody.data.inviteId, parsedBody.data.pin);
+    if (!paired) {
+      pairingUnavailable(response);
+      return;
+    }
+
+    response.json({ status: "paired" });
+  });
+
+  app.use((
+    error: unknown,
+    _request: express.Request,
+    response: express.Response,
+    next: express.NextFunction
+  ) => {
+    const status = typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status?: unknown }).status)
+      : 0;
+    if (status === 400 || status === 413) {
+      pairingUnavailable(response);
+      return;
+    }
+    next(error);
+  });
+
   if (serveWeb) {
     const webRoot = fileURLToPath(new URL("../../web/dist/", import.meta.url));
     app.use(express.static(webRoot));
@@ -98,6 +136,10 @@ function cameraCredentials(sessionId: string, authorization: string | undefined)
 
 function unavailable(response: express.Response) {
   response.status(404).json({ error: "Session unavailable" });
+}
+
+function pairingUnavailable(response: express.Response) {
+  response.status(400).json({ error: "Pairing unavailable" });
 }
 
 const port = Number(process.env.PORT ?? 3000);

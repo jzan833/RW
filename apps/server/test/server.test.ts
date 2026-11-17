@@ -199,3 +199,105 @@ describe("T06 monitoring session lifecycle", () => {
     }
   });
 });
+
+async function pairViewer(
+  server: typeof rwServer,
+  inviteId: string,
+  pin: string,
+  bodyOverride?: unknown
+) {
+  const address = server.httpServer.address() as AddressInfo;
+  return fetch(`http://127.0.0.1:${address.port}/api/pairing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyOverride ?? { inviteId, pin })
+  });
+}
+
+describe("T08 PIN pairing", () => {
+  it("pairs with the correct PIN and makes the invite single-use", async () => {
+    const session = await createMonitoringSession();
+
+    const paired = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+    const reused = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+
+    expect(paired.status).toBe(200);
+    expect(paired.headers.get("cache-control")).toBe("no-store");
+    await expect(paired.json()).resolves.toEqual({ status: "paired" });
+    expect(reused.status).toBe(400);
+    await expect(reused.json()).resolves.toEqual({ error: "Pairing unavailable" });
+  });
+
+  it("rejects a wrong PIN without consuming a valid invite", async () => {
+    const session = await createMonitoringSession();
+    const wrongPin = session.invite.pin === "000000" ? "000001" : "000000";
+
+    const rejected = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      wrongPin
+    );
+    const pairedAfterRetry = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin
+    );
+
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toEqual({ error: "Pairing unavailable" });
+    expect(pairedAfterRetry.status).toBe(200);
+  });
+
+  it("rejects an invite after its five-minute expiry", async () => {
+    let now = Date.UTC(2026, 10, 18, 0, 0, 0);
+    const expiringServer = createRwServer({
+      sessionSecret: "test-only-pairing-expiry-secret",
+      now: () => now
+    });
+    expiringServer.httpServer.listen(0, "127.0.0.1");
+    await once(expiringServer.httpServer, "listening");
+
+    try {
+      const session = await createMonitoringSession(expiringServer);
+      now += INVITE_TTL_MS;
+      const response = await pairViewer(
+        expiringServer,
+        session.invite.inviteId,
+        session.invite.pin
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "Pairing unavailable" });
+    } finally {
+      expiringServer.io.close();
+      await new Promise<void>((resolve) => expiringServer.httpServer.close(() => resolve()));
+    }
+  });
+
+  it("validates pairing input without revealing whether an invite exists", async () => {
+    const session = await createMonitoringSession();
+    const malformed = await pairViewer(
+      rwServer,
+      session.invite.inviteId,
+      session.invite.pin,
+      { inviteId: session.invite.inviteId, pin: session.invite.pin, extra: true }
+    );
+    const unknown = await pairViewer(
+      rwServer,
+      "u".repeat(43),
+      "000000"
+    );
+
+    expect(malformed.status).toBe(400);
+    expect(unknown.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({ error: "Pairing unavailable" });
+    await expect(unknown.json()).resolves.toEqual({ error: "Pairing unavailable" });
+  });
+});
