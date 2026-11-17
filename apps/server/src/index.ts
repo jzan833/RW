@@ -129,6 +129,16 @@ export function createRwServer({
     response.json({ status: "paired" });
   });
 
+  app.get("/api/viewer-session/id", (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const credentials = viewerCredentials(request.headers.cookie);
+    if (!credentials || !sessionStore.validateViewer(credentials.sessionId, credentials.viewerToken)) {
+      response.status(401).json({ error: "Viewer session unavailable" });
+      return;
+    }
+    response.json({ sessionId: credentials.sessionId });
+  });
+
   app.get("/api/turn-credentials/:sessionId", (request, response) => {
     const sessionId = request.params.sessionId;
     const camera = cameraCredentials(sessionId, request.headers.authorization);

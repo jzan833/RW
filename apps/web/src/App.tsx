@@ -237,6 +237,25 @@ const pairingUrlFor = (inviteId: string) => {
   return url.toString();
 };
 
+type IceServerResponse = { iceServers?: RTCIceServer[] };
+
+async function loadIceServers(sessionId: string, cameraToken?: string): Promise<RTCIceServer[]> {
+  const response = await fetch(`/api/turn-credentials/${encodeURIComponent(sessionId)}`, {
+    headers: cameraToken ? { Authorization: `Bearer ${cameraToken}` } : undefined,
+    credentials: "include"
+  });
+  if (!response.ok) return [];
+  const payload = await response.json() as IceServerResponse;
+  return Array.isArray(payload.iceServers) ? payload.iceServers : [];
+}
+
+async function getViewerSessionIdHint(): Promise<string> {
+  const response = await fetch("/api/viewer-session/id", { credentials: "include" });
+  if (!response.ok) return "";
+  const payload = await response.json() as { sessionId?: unknown };
+  return typeof payload.sessionId === "string" ? payload.sessionId : "";
+}
+
 const formatCountdown = (remainingMs: number) => {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
@@ -410,6 +429,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
   useEffect(() => {
     if (!cameraSession) return;
+    if (typeof RTCPeerConnection === "undefined") return;
     setClock(Date.now());
     const timer = window.setInterval(() => setClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
@@ -421,7 +441,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     socketRef.current = socket;
     const makePeer = async () => {
       peerRef.current?.close();
-      const peer = new RTCPeerConnection();
+      const iceServers = await loadIceServers(cameraSession.sessionId, cameraSession.cameraToken);
+      const peer = new RTCPeerConnection({ iceServers });
       peerRef.current = peer;
       streamRef.current?.getTracks().forEach((track) => peer.addTrack(track, streamRef.current!));
       peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
@@ -818,21 +839,30 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
   useEffect(() => {
     if (pairingState !== "paired") return;
+    if (typeof RTCPeerConnection === "undefined") return;
     const socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
-    const peer = new RTCPeerConnection();
-    viewerPeerRef.current = peer;
-    peer.ontrack = (event) => { if (liveVideoRef.current) liveVideoRef.current.srcObject = event.streams[0]; };
-    peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
-    socket.on("rw:peer-joined", (event: { role: string }) => { if (event.role === "camera") peer.addTransceiver("video", { direction: "recvonly" }); });
-    socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
-      if (message.type === "offer") {
-        await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        socket.emit("rw:signal", { type: "answer", payload: answer });
-      } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
-    });
-    return () => { peer.close(); viewerPeerRef.current = null; socket.disconnect(); };
+    let cancelled = false;
+    let peer: RTCPeerConnection | null = null;
+    void (async () => {
+      const sessionId = await getViewerSessionIdHint();
+      const iceServers = sessionId ? await loadIceServers(sessionId) : [];
+      if (cancelled) return;
+      peer = new RTCPeerConnection({ iceServers });
+      viewerPeerRef.current = peer;
+      peer.ontrack = (event) => { if (liveVideoRef.current) liveVideoRef.current.srcObject = event.streams[0]; };
+      peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
+      socket.on("rw:peer-joined", (event: { role: string }) => { if (event.role === "camera") void peer?.addTransceiver("video", { direction: "recvonly" }); });
+      socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
+        if (!peer) return;
+        if (message.type === "offer") {
+          await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          socket.emit("rw:signal", { type: "answer", payload: answer });
+        } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+      });
+    })();
+    return () => { cancelled = true; peer?.close(); viewerPeerRef.current = null; socket.disconnect(); };
   }, [pairingState]);
 
   const submitPairing = async (event: React.FormEvent<HTMLFormElement>) => {
