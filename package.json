@@ -1,0 +1,19 @@
+{
+  "name": "rw",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/web",
+    "apps/server"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @rw/web",
+    "dev:server": "npm run dev -w @rw/server",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "engines": {
+    "node": ">=24 <27",
+    "npm": ">=11"
+  }
+}
