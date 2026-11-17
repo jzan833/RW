@@ -1,0 +1,18 @@
+# Provider URL + managed HTTPS; no purchased domain, VPS or database.
+services:
+  - type: web
+    name: rw-mvp
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start -w @rw/server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.18.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: SERVE_WEB
+        value: "true"

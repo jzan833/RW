@@ -1,0 +1,37 @@
+# Copy to /etc/turnserver.conf on the TURN VPS and replace every <...> value.
+# This template intentionally contains no real secret or public IP.
+
+listening-port=3478
+fingerprint
+realm=<turn-realm>
+server-name=rw-turn
+use-auth-secret
+static-auth-secret=<long-random-turn-secret>
+
+# Restrict relay allocation to a known firewall range.
+min-port=49152
+max-port=65535
+external-ip=<vps-public-ip>
+
+# Live relay only: no application recording and no verbose credential/media logs.
+no-cli
+# Loopback peers are denied by default; do not enable allow-loopback-peers.
+no-multicast-peers
+# Prevent relay access to private networks and cloud instance metadata.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+no-stdout-log
+log-file=/dev/null
+
+# UDP is the MVP path. Enable TLS only after a certificate is provisioned.
+no-tls
+no-dtls
+no-tcp-relay

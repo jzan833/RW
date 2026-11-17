@@ -8,11 +8,11 @@
 
 | ID | လုပ်မည့်အရာ | မှီခိုတဲ့ task | ပြီးကြောင်းသက်သေ | Status |
 | --- | --- | --- | --- | --- |
-| T00 | Viewer cookie `Max-Age` နှင့် အများဆုံး supported monitoring duration ကို ဆုံးဖြတ်ပြီး requirements/security docs နှစ်ခုလုံးတွင် တူညီစွာရေးမည်။ | — | Docs နှစ်ခုတွင် numeric expiry တစ်ခုတည်းရှိပြီး active session အတွင်း re-entry စည်းကမ်း မဆန့်ကျင်ကြောင်း review လုပ်ပြီးမှတ်ထားသည်။ | မစသေး |
-| T01 | React + TypeScript + Vite frontend အခြေခံနှင့် camera/viewer screen route များ တည်ဆောက်မည်။ | — | Frontend build အောင်မြင်ပြီး laptop/phone viewport နှစ်ခုတွင် role screen နှစ်ခု ဖွင့်နိုင်သည်။ | လုပ်ဆောင်နေ — Home/role routes နှင့် local runtime test ပြီး၊ laptop/phone viewport လက်တွေ့စစ်ရန် ကျန် |
+| T00 | Viewer cookie `Max-Age` နှင့် အများဆုံး supported monitoring duration ကို ဆုံးဖြတ်ပြီး requirements/security docs နှစ်ခုလုံးတွင် တူညီစွာရေးမည်။ | — | Docs နှစ်ခုတွင် **12 hours / 43,200 seconds** တစ်ခုတည်းရှိပြီး active session အတွင်း re-entry စည်းကမ်း မဆန့်ကျင်ကြောင်း review လုပ်ပြီးမှတ်ထားသည်။ | ပြီး |
+| T01 | React + TypeScript + Vite frontend အခြေခံနှင့် camera/viewer screen route များ တည်ဆောက်မည်။ | — | Frontend build အောင်မြင်ပြီး laptop/phone viewport နှစ်ခုတွင် role screen နှစ်ခု ဖွင့်နိုင်သည်။ | ပြီး — ၂၀၂၆-၁၁-၁၈ တွင် user က laptop/phone visual check ပြီးကြောင်း အတည်ပြုထားသည်။ |
 | T02 | Node + Express + Socket.IO backend အခြေခံနှင့် health endpoint တည်ဆောက်မည်။ | — | Local health request အောင်မြင်၊ Socket.IO client တစ်ခု ချိတ်/ဖြုတ်နိုင်ပြီး server error မရှိ။ | ပြီး |
-| T03 | VPS ပေါ် Caddy HTTPS/WSS ဖြင့် frontend နှင့် backend ကို public domain မှ ဝင်နိုင်အောင် deploy လုပ်မည်။ | T01, T02 | Laptop နှင့် phone မှ HTTPS certificate မှန်ကန်စွာ site ဖွင့်နိုင်ပြီး health API နှင့် WSS handshake အောင်မြင်သည်။ | မစသေး |
-| T04 | coturn STUN/TURN server နှင့် public ports/firewall၊ test အတွက် short-lived credentials ကို ပြင်ဆင်မည်။ | T03 | Test client မှ STUN candidate နှင့် TURN `relay` candidate ရသည်; credential မရှိလျှင် TURN allocation မရ။ | မစသေး |
+| T03 | Free provider URL နှင့် managed HTTPS/WSS ဖြင့် frontend/backend ကို deploy လုပ်မည်။ မူလ VPS/Caddy recipe ကို alternative အဖြစ်ထားမည်။ | T01, T02 | Laptop နှင့် phone မှ HTTPS certificate မှန်ကန်စွာ site ဖွင့်နိုင်ပြီး health API နှင့် WSS handshake အောင်မြင်သည်။ | လုပ်ဆောင်နေ — Render Free Blueprint နှင့် same-origin app serving ပြင်ဆင်ထား။ Render connection/source remote နှင့် public acceptance ကျန်။ |
+| T04 | Free managed STUN/TURN service နှင့် short-lived test credentials ပြင်ဆင်မည်။ မူလ coturn VPS recipe ကို alternative အဖြစ်ထားမည်။ | T03 | Test client မှ STUN candidate နှင့် TURN `relay` candidate ရသည်; credential မရှိလျှင် TURN allocation မရ။ | ပိတ်ဆို့နေ — T03 public deployment၊ managed TURN account/API access နှင့် quota/retention review ကျန်။ |
 | T05 | Camera permission၊ local preview နှင့် permission/hardware error UI တည်ဆောက်မည် (F01)။ | T01, T03 | Laptop နှင့် phone browser မှ permission ပေးပြီး local preview ပေါ်သည်; ပယ်ချလျှင် capture မစဘဲ error ပြသည်။ | မစသေး |
 | T06 | Backend monitoring session၊ camera role token၊ invite ထုတ်/အသစ်ထုတ် API နှင့် Stop/restart အတွက် ယာယီ state တည်ဆောက်မည် (F02, F07)။ | T02 | Camera session စလျှင် ID/token/invite ရ၊ invite အသစ်ထုတ်နိုင်၊ Stop လျှင် session ပျက်၊ backend restart နောက် session ဟောင်း မရှိတော့ကြောင်း API စစ်ချက် အောင်မြင်သည်။ | မစသေး |
 | T07 | Camera screen တွင် QR link၊ သီးခြား ၆ လုံး PIN၊ invite expiry နှင့် regenerate UI ပြမည် (F03)။ | T05, T06 | QR scan လျှင် မှန်ကန်သော pair URL ဖွင့်သည်; URL ထဲ PIN မပါ; ၅ မိနစ်ပြည့်လျှင် expired ပြပြီး invite အသစ်ထုတ်နိုင်သည်။ | မစသေး |
@@ -59,3 +59,55 @@
 - `npm.cmd test`: web Home page tests ၃ ခုနှင့် server health/Socket.IO tests ၂ ခု၊ စုစုပေါင်း ၅ ခု pass။
 - `npm.cmd run build`: web နှင့် server နှစ်ခုလုံး pass။
 - `npm.cmd run dev`: server ကို port 3000 တွင်၊ Vite web app ကို port 5174 တွင် run လုပ်ပြီး `/api/health` proxy HTTP 200 နှင့် Socket.IO WebSocket proxy connection ကို စစ်ထားသည်။ Port 5173 သည် ယခင် local dev process က အသုံးပြုထားသောကြောင့် Vite က 5174 ကို အလိုအလျောက်ရွေးခဲ့သည်။
+
+## T01 responsive UI follow-up — ၂၀၂၆-၁၁-၁၈
+
+- Home၊ `/camera` နှင့် `/viewer` တွင် role အလိုက် UI ကို ပြန်စီထားသည်။ Desktop တွင် role choices ကို ၂ ကော်လံ၊ `700px` အောက် phone viewport တွင် ၁ ကော်လံသို့ ပြောင်းပြီး camera/viewer screen များကိုလည်း stacked layout ပြောင်းသည်။ Camera media permission၊ pairing နှင့် live stream မထည့်ထား။ Camera screen တွင် capture မစသေးသဖြင့် **Not monitoring** ဟုသာ ပြသည်။
+- `npm.cmd test`: web route/UI tests ၄ ခုနှင့် server tests ၂ ခု၊ စုစုပေါင်း ၆ ခု pass။ Camera route test က `getUserMedia()` မခေါ်ကြောင်းလည်း စစ်သည်။
+- `npm.cmd run typecheck` နှင့် `npm.cmd run build`: web နှင့် server နှစ်ခုလုံး pass။
+- `npm.cmd run dev`: Express server `127.0.0.1:3000` နှင့် Vite app `localhost:5173` တွင် အောင်မြင်စွာ run လုပ်ခဲ့သည်၊ ထို့နောက် test process ကိုရပ်ထားသည်။
+- Chrome/Edge headless ဖြင့် `1440×900` နှင့် `390×844` visual screenshot စစ်ရန် ကြိုးစားခဲ့သော်လည်း ဤ environment ၏ browser GPU renderer က start မဖြစ်၍ screenshot မထွက်။ ထို့ကြောင့် visual viewport/device acceptance ကို pass ဟုမမှတ်ထားသေး။
+
+## T01 user visual confirmation — ၂၀၂၆-၁၁-၁၈
+
+- User က laptop နှင့် phone တွင် Home၊ Camera နှင့် Viewer screen များကို visual check ပြီးကြောင်း အတည်ပြုထားသည်။
+
+## T03 deployment setup — ၂၀၂၆-၁၁-၁၈
+
+- `deploy/Caddyfile.example` တွင် static frontend serving၊ `/api/*` reverse proxy၊ `/socket.io/*` WebSocket reverse proxy နှင့် security headers ထည့်ထားသည်။ Pairing URL များ log မဝင်စေရန် Caddy access log မဖွင့်ထား။
+- `deploy/rw.service` တွင် Node server ကို `127.0.0.1:3000` မှသာ run စေပြီး systemd hardening options ထည့်ထားသည်။
+- `deploy/README.md` တွင် VPS prerequisites၊ build/install၊ environment file permission၊ systemd setup၊ Caddy validate/reload နှင့် HTTPS/WSS acceptance checks ရေးထားသည်။
+- `npm.cmd run typecheck`, `npm.cmd test`, `npm.cmd run build` ကို local workspace တွင် စစ်ပြီး pass ဖြစ်သည်။ Public VPS IP၊ domain၊ SSH access မရှိသေးသဖြင့် HTTPS certificate၊ public `/api/health` နှင့် WSS handshake ကို မစစ်ရသေး။ T03 ကို **ပြီး** ဟု မမှတ်ထား။
+
+## T03/T04 execution check — ၂၀၂၆-၁၁-၁၈
+
+အောက်ပါ VPS blocker notes များသည် အစောပိုင်းစစ်ချက်မှတ်တမ်းဖြစ်သည်။ လက်ရှိ free-provider ရွေးချယ်မှုနှင့် နောက်ဆုံးရလဒ်ကို အောက်ဆုံး section တွင် ဖတ်ရန်။
+
+- Local workspace တွင် `.env` မရှိဘဲ `.env.example` သာရှိသည်။ Target VPS hostname/IP၊ domain နှင့် SSH key path မပေးထားသေး။
+- Local tools စစ်ရာတွင် `ssh` client သာရှိပြီး Caddy၊ coturn နှင့် Docker မရှိ။ ထို့ကြောင့် public HTTPS certificate၊ `/api/health`၊ `/camera`၊ `/viewer`၊ WSS handshake နှင့် TURN `relay` candidate များကို စမ်းသပ်ရန် endpoint မရှိ။
+- T04 သည် T03 ကို မှီခိုသောကြောင့် coturn install/configuration ကို မစတင်ရသေး။
+- `deploy/coturn.conf.example` တွင် UDP `3478`၊ relay range `49152-65535`၊ shared-secret authentication နှင့် live-relay-only logging rules ကို placeholder အဖြစ် initialize လုပ်ထားသည်။ Actual coturn install၊ firewall၊ credential expiry နှင့် `relay` candidate test မလုပ်ရသေး။
+- `npm.cmd run dev` ကို run လုပ်ရာတွင် local port `3000` သည် အခြား process အသုံးပြုနေသောကြောင့် backend အသစ်က bind မလုပ်နိုင်ခဲ့သော်လည်း ရှိပြီးသား backend health က `200 / {"status":"ok"}` ပြန်သည်။ Vite သည် `5174` တွင် run ပြီး `/`, `/camera`, `/viewer` သုံးခုလုံး HTTP `200` ပြန်သည်။ ဒီ local process ကို စမ်းပြီးရပ်ထားသည်။
+- T03/T04 config preflight သည် required files နှင့် Caddy/systemd/coturn mandatory directives အားလုံးတွေ့၍ pass ဖြစ်သည်။ Caddy/coturn CLI မရှိသဖြင့် actual syntax, public certificate, WSS နှင့် TURN allocation ကို pass ဟု မဆိုထား။
+
+## Free deployment setup — ၂၀၂၆-၁၁-၁၈
+
+- User က domain မဝယ်ဘဲ free deploy ရွေးထားသည်။ `render.yaml` တွင် Node Free service, managed provider URL, build/start, host နှင့် health check configure လုပ်ထားသည်။ Blueprint ကို Render server က validate/deploy မလုပ်ရသေး။
+- `SERVE_WEB=true` ဖြင့် Express က built frontend `/`, `/camera`, `/viewer` ကို serve လုပ်ပြီး privacy headers ထည့်သည်။ Backend API/Socket.IO ကို same-origin သုံးသည်။
+- `npm.cmd run typecheck`, `npm.cmd test` (web ၄ + server ၄ = ၈ tests), `npm.cmd run build` pass ဖြစ်သည်။
+- Production build ကို `127.0.0.1:3015` တွင် run ပြီး `npm.cmd run check:deploy -- --local http://127.0.0.1:3015` ဖြင့် JSON health, app routes သုံးခုနှင့် Socket.IO **WS** handshake pass။ Public HTTPS/WSS သို့မဟုတ် phone browser test မဟုတ်။ HTTP ကို `--local` မပါဘဲ reject လုပ်ကြောင်း guard test pass။
+- Caddy SPA fallback/API rewrite order ကို exclusive `handle` blocks ဖြင့် ပြင်ထားပြီး coturn template မှ deprecated option ကို ပြင်ထားသည်။ Caddy/coturn runtime test မလုပ်ရသေး။
+- Render integration ကို ရှာတွေ့ပြီး connection အတွက် ရွေးချယ်စရာပေးထားသည်။ Account connection မအတည်ပြုရသေး၊ Git remote မရှိ၊ public URL မရသေး။
+- T04 အတွက် managed TURN account, private API access, ၁ နာရီ expiry support, quota/retention review နှင့် valid/invalid credential relay test ကျန်သည်။ Free tier ကို unlimited သို့မဟုတ် recording-free အဖြစ် အတည်မပြုရသေး။
+- နောက်တစ်ဆင့်: Render ချိတ်ပြီး source repo ဖြင့် Free deploy → public HTTPS/WSS + laptop/phone acceptance → managed TURN acceptance → T05။ Checklist: [deployment-checklist.md](deployment-checklist.md)။
+
+## Render connection check — ၂၀၂၆-၁၁-၁၈
+
+- Integration discovery စစ်ရာတွင် Render သည် available ဖြစ်ပြီး installed/connected မအတည်ပြုရသေး။ Local Git remote လည်း မရှိသေး။ Account connection နှင့် repository URL ကို user ထံတောင်းထားသည်။
+- `deploy/README.md` တွင် integration authorization၊ Git access၊ New → Blueprint၊ Free plan review၊ Live URL နှင့် acceptance checks အစဉ်လိုက်ရေးထားသည်။
+- ဤစစ်ချက်တွင် cloud resource မဖန်တီး၊ public deploy မလုပ်ရသေး။ T03 public HTTPS/WSS နှင့် T04 TURN allocation acceptance မပြီးသေး။
+
+## GitHub source target — ၂၀၂၆-၁၁-၁၈
+
+- User က `https://github.com/jzan833/RW.git` ကို deployment source အဖြစ်ပေးထားသည်။ `git ls-remote` အောင်မြင်ပြီး HEAD/main/master refs မရှိသေးကြောင်း စစ်တွေ့သည်။
+- Local source ကို verification/credential-pattern scan ပြီးမှ push လုပ်ရန် ပြင်ဆင်သည်။ Render integration သည် discovery စစ်ချိန်တွင် connected မဖြစ်သေး။ Public deploy/HTTPS/WSS/TURN acceptance မပြီးသေး။

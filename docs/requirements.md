@@ -52,6 +52,7 @@
 - Session တစ်ခုတွင် တစ်ချိန်တည်း active viewer connection ၁ ခုသာ ရှိရမည်။ ဒုတိယ viewer ဝင်လျှင် **Viewer already connected** ပြပြီး stream မပေးရ။
 - Pair လုပ်ပြီးသား viewer က RW ကို background ပို့ပြီး foreground ပြန်ဝင်ခြင်း၊ tab/browser ပိတ်ပြီး တူညီသော browser မှ RW ကိုပြန်ဖွင့်ခြင်း၊ သို့မဟုတ် refresh လုပ်ခြင်းတို့တွင် session အသက်ရှိနေသရွေ့ QR/PIN ထပ်မလိုဘဲ live ပြန်ချိတ်နိုင်ရမည်။
 - Viewer ပြန်ဝင်လျှင် ပျက်နေသော connection ဟောင်းကို အစားထိုးပြီး active viewer connection ၁ ခုသာ ကျန်ရမည်။ စမ်းသပ်ချိတ်ဆက်မှုတွင် ၃၀ စက္ကန့်အတွင်း live ပြန်ပေါ်ရမည် သို့မဟုတ် error နှင့် **Retry** ပြရမည်။
+- Monitoring session တစ်ခုသည် camera က စတင်ချိန်မှ အများဆုံး **၁၂ နာရီ** အသက်ရှိမည်။ Viewer cookie သည် `Max-Age=43,200` seconds ဖြစ်ပြီး session အဆုံးသတ်ခြင်း၊ camera Stop နှိပ်ခြင်း သို့မဟုတ် server restart ဖြစ်လျှင် သက်တမ်းမကုန်မီပင် server က access ကို reject လုပ်ရမည်။
 - Session link ကိုသာ အခြား device တွင်ဖွင့်ရုံဖြင့် stream မကြည့်နိုင်ရ။ Browser data ဖျက်ပြီးပါက QR/PIN ဖြင့် အသစ် pair လုပ်ရမည်။
 - Camera ဘက်မှ session ရပ်လျှင် viewer ပြန်ဝင်ခွင့် ပျက်ရမည်။
 

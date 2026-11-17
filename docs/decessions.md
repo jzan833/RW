@@ -21,6 +21,8 @@
 
 ## ၂ ရက် delivery အစီအစဉ်
 
+၂၀၂၆-၁၁-၁၈ deployment update: Domain မဝယ်၊ free hosting သာသုံးရန် user ရွေးထားသဖြင့် Render Free provider URL + managed HTTPS/WSS ကို T03 အတွက် ပြင်ဆင်သည်။ T04 သည် managed TURN free quota အတွင်းသာ သုံးရန် ပြင်ဆင်မည်။ Account provisioning နှင့် public tests မပြီးသေး။ VPS/coturn files သည် alternative ဖြစ်သည်။ Free service cold start ကြောင့် release timeout requirements အားလုံးပြည့်သည်ဟု မယူဆရ။
+
 - **Day 1:** HTTPS, camera preview, monitoring screen, QR + PIN, signaling, WebRTC, TURN နှင့် basic viewer screen။
 - **Day 2:** Viewer limit/re-entry, audio toggle, Hold to Talk, alarm, status/error handling နှင့် laptop/Android/iPhone browser များကို Wi-Fi + cellular ဖြင့် စမ်းသပ်ခြင်း။
 

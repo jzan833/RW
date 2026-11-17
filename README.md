@@ -14,4 +14,6 @@ Use `npm.cmd run typecheck`, `npm.cmd test`, and `npm.cmd run build` to verify t
 
 `.env.example` contains placeholder names only. The current setup server reads `HOST` and `PORT` from its process environment; the other variables are reserved for later tasks. Copying `.env.example` as-is will not provide usable values.
 
-The Vite development proxy sends `/api` and `/socket.io` requests to the local backend. Public HTTPS and TURN deployment are separate tasks in [`docs/plan.md`](docs/plan.md).
+The Vite development proxy sends `/api` and `/socket.io` requests to the local backend. For free hosting without a purchased domain, `render.yaml` builds both workspaces and starts Express with `SERVE_WEB=true` so built React routes, API and Socket.IO share a provider HTTPS URL. See [deployment requirements](docs/deployment-checklist.md) and [deployment instructions](deploy/README.md).
+
+After deployment, run `npm.cmd run check:deploy -- https://ASSIGNED_NAME.onrender.com` to check health, web routes and a Socket.IO WSS handshake. Render connection/source access and a managed TURN account are still needed; deployment has not happened merely because the configuration exists.

@@ -42,4 +42,19 @@ describe("RW server setup", () => {
       socket.once("connect_error", reject);
     });
   });
+
+  it("sets privacy headers when the provider terminates HTTPS", async () => {
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/health`);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("x-powered-by")).toBeNull();
+  });
+
+  it("does not turn an unknown API endpoint into an HTML success", async () => {
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/not-found`);
+    expect(response.status).toBe(404);
+  });
 });

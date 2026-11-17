@@ -4,6 +4,8 @@
 
 ## စနစ်ပုံစံ
 
+၂၀၂၆-၁၁-၁၈ update: User က domain မဝယ်ဘဲ free deploy ကို ရွေးထားသည်။ လက်ရှိ T03 setup သည် Render Free ၏ provider URL/managed HTTPS နှင့် Express မှ frontend/API/Socket.IO ကို တစ်နေရာတည်း serve လုပ်ခြင်းဖြစ်သည်။ အောက်ပါ Caddy/VPS diagram သည် alternative ဖြစ်သည်။ T04 အတွက် managed TURN free tier ကို ပြင်ဆင်မည်; coturn VPS template ကို alternative အဖြစ်သာထားသည်။ Render cold-start/session-loss နှင့် TURN quota ကန့်သတ်ချက်များကို [deployment instructions](../deploy/README.md) တွင် မှတ်ထားသည်။ Public HTTPS/WSS နှင့် STUN/TURN acceptance မပြောင်းပါ။
+
 ```mermaid
 flowchart LR
     C[Camera browser] -->|HTTPS / WSS: control နှင့် signaling| P[Caddy]
