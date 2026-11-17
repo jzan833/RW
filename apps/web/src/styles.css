@@ -390,6 +390,8 @@ h1 {
   gap: clamp(28px, 4.5vw, 62px);
   grid-template-columns: minmax(280px, 0.76fr) minmax(440px, 1.24fr);
 }
+.camera-preview-layout { grid-template-columns: minmax(0, 1fr); }
+.camera-preview-layout .preview-frame { max-height: min(72dvh, 900px); width: 100%; }
 .camera-copy { padding-top: 7px; }
 .camera-copy h1 { max-width: 9ch; }
 .camera-readout {
@@ -770,6 +772,20 @@ h1 {
 .viewer-scan-panel {
   display: grid;
   margin-top: 34px;
+}
+.viewer-live-layout { grid-template-columns: minmax(0, 1fr); }
+.viewer-live-layout .role-intro { display: none; }
+.viewer-live-layout .viewer-panel { min-height: 0; min-width: 0; width: 100%; }
+.viewer-live-layout .viewer-paired { margin-top: 18px; min-width: 0; }
+.viewer-paired video {
+  background: #000;
+  border: 1px solid var(--line-bright);
+  border-radius: 14px;
+  display: block;
+  height: auto;
+  max-height: min(78dvh, 900px);
+  object-fit: contain;
+  width: 100%;
 }
 
 .viewer-pairing-form .device-icon,

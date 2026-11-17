@@ -414,6 +414,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [resolution, setResolution] = useState("");
+  const [cameraAspectRatio, setCameraAspectRatio] = useState("16 / 9");
   const [cameraSession, setCameraSession] = useState<CameraSession>();
   const [pairingState, setPairingState] = useState<PairingState>("idle");
   const [pairingError, setPairingError] = useState("");
@@ -656,6 +657,9 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       }
 
       setSelectedDeviceId(trackSettings.deviceId ?? deviceId ?? "");
+      if (trackSettings.width && trackSettings.height) {
+        setCameraAspectRatio(`${trackSettings.width} / ${trackSettings.height}`);
+      }
       setResolution(trackSettings.width && trackSettings.height ? `${trackSettings.width} × ${trackSettings.height}` : copy.autoResolution);
       setCameraState("preview");
 
@@ -701,7 +705,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       <div className="tech-grid" aria-hidden="true" />
       <div className="app-surface role-surface camera-surface">
         <AppHeader mode="camera" onHome={onHome} {...settings} />
-        <section className="camera-layout" aria-labelledby="camera-title">
+        <section className={`camera-layout${cameraState === "preview" ? " camera-preview-layout" : ""}`} aria-labelledby="camera-title">
           <div className="role-intro camera-copy">
             <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
             <p className="eyebrow"><span aria-hidden="true">●</span> {copy.cameraEyebrow}</p>
@@ -767,7 +771,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
               <span>VIDEO / {cameraState.toUpperCase()}</span>
               <span>STORE / OFF</span>
             </div>
-            <div className={`preview-frame preview-${cameraState}`}>
+            <div className={`preview-frame preview-${cameraState}`} style={{ aspectRatio: cameraAspectRatio }}>
               <video ref={videoRef} autoPlay muted playsInline aria-label={copy.localPreview} />
               {cameraState !== "preview" ? (
                 <div className="preview-placeholder">
@@ -1034,7 +1038,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       <div className="tech-grid" aria-hidden="true" />
       <div className="app-surface role-surface">
         <AppHeader mode="viewer" onHome={onHome} {...settings} />
-        <section className="role-layout" aria-labelledby="viewer-title">
+        <section className={`role-layout viewer-layout${pairingState === "paired" ? " viewer-live-layout" : ""}`} aria-labelledby="viewer-title">
           <div className="role-intro">
             <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
             <p className="eyebrow"><span aria-hidden="true">●</span> {copy.viewerEyebrow}</p>
