@@ -19,6 +19,7 @@ type MonitoringSessionRecord = {
   invite: InviteRecord;
   inviteRegeneratedAt: number[];
   viewerTokenVerifier?: Buffer;
+  viewerSocketId?: string;
 };
 
 export type PublicInvite = {
@@ -43,6 +44,8 @@ export type RegenerateInviteResult =
   | { status: "ok"; invite: PublicInvite }
   | { status: "rate_limited"; retryAfterSeconds: number }
   | { status: "unavailable" };
+
+export type SocketRole = "camera" | "viewer";
 
 export const INVITE_REGENERATE_LIMIT = 3;
 export const INVITE_REGENERATE_WINDOW_MS = 60 * 1_000;
@@ -166,6 +169,26 @@ export class MonitoringSessionStore {
       candidate.length === session.viewerTokenVerifier.length &&
       timingSafeEqual(candidate, session.viewerTokenVerifier)
     );
+  }
+
+  authorizeSocket(sessionId: string, role: SocketRole, token: string): boolean {
+    return role === "camera"
+      ? Boolean(this.#authorizedSession(sessionId, token))
+      : this.validateViewer(sessionId, token);
+  }
+
+  claimViewerSocket(sessionId: string, socketId: string): boolean {
+    const session = this.#sessions.get(sessionId);
+    if (!session || session.viewerSocketId) return false;
+    session.viewerSocketId = socketId;
+    return true;
+  }
+
+  releaseViewerSocket(sessionId: string, socketId: string): boolean {
+    const session = this.#sessions.get(sessionId);
+    if (!session || session.viewerSocketId !== socketId) return false;
+    session.viewerSocketId = undefined;
+    return true;
   }
 
   stop(sessionId: string, cameraToken: string): boolean {

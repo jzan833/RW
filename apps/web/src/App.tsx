@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { io, type Socket } from "socket.io-client";
 
 type Mode = "home" | "camera" | "viewer";
 type AppPath = "/" | "/camera" | "/viewer";
@@ -379,6 +380,9 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const operationRef = useRef(0);
   const pairingOperationRef = useRef(0);
   const mountedRef = useRef(true);
+  const socketRef = useRef<Socket | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const [viewerCount, setViewerCount] = useState(0);
 
   const stopTracks = (stream: MediaStream | null) => {
     stream?.getTracks().forEach((track) => track.stop());
@@ -410,6 +414,31 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     const timer = window.setInterval(() => setClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [cameraSession?.invite.expiresAt]);
+
+  useEffect(() => {
+    if (!cameraSession) return;
+    const socket = io({ auth: { role: "camera", sessionId: cameraSession.sessionId, token: cameraSession.cameraToken }, transports: ["websocket"] });
+    socketRef.current = socket;
+    const makePeer = async () => {
+      peerRef.current?.close();
+      const peer = new RTCPeerConnection();
+      peerRef.current = peer;
+      streamRef.current?.getTracks().forEach((track) => peer.addTrack(track, streamRef.current!));
+      peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socket.emit("rw:signal", { type: "offer", payload: offer });
+    };
+    socket.on("rw:peer-joined", (event: { role: string }) => { if (event.role === "viewer") void makePeer(); });
+    socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
+      const peer = peerRef.current;
+      if (!peer) return;
+      if (message.type === "answer") await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+      if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+    });
+    socket.on("rw:viewer-count", (event: { count: number }) => setViewerCount(event.count));
+    return () => { peerRef.current?.close(); peerRef.current = null; socket.disconnect(); socketRef.current = null; setViewerCount(0); };
+  }, [cameraSession?.sessionId]);
 
   useEffect(() => {
     if (!cameraSession) {
@@ -626,6 +655,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 <p>{statusText}</p>
               </div>
               <p className="preview-boundary">{copy.previewOnly}</p>
+              {cameraSession ? <p role="status">{viewerCount} viewers</p> : null}
             </div>
 
             {cameraState === "preview" && devices.length > 0 ? (
@@ -769,6 +799,8 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [pin, setPin] = useState("");
   const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
   const [viewerError, setViewerError] = useState(inviteId && !inviteValid ? copy.invalidInviteViewer : "");
+  const liveVideoRef = useRef<HTMLVideoElement>(null);
+  const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
     if (inviteId || pairingState === "paired") return;
@@ -783,6 +815,25 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       cancelled = true;
     };
   }, [inviteId, pairingState]);
+
+  useEffect(() => {
+    if (pairingState !== "paired") return;
+    const socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
+    const peer = new RTCPeerConnection();
+    viewerPeerRef.current = peer;
+    peer.ontrack = (event) => { if (liveVideoRef.current) liveVideoRef.current.srcObject = event.streams[0]; };
+    peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
+    socket.on("rw:peer-joined", (event: { role: string }) => { if (event.role === "camera") peer.addTransceiver("video", { direction: "recvonly" }); });
+    socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
+      if (message.type === "offer") {
+        await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        socket.emit("rw:signal", { type: "answer", payload: answer });
+      } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+    });
+    return () => { peer.close(); viewerPeerRef.current = null; socket.disconnect(); };
+  }, [pairingState]);
 
   const submitPairing = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -842,7 +893,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
             {pairingState === "paired" ? (
               <div className="viewer-paired">
-                <DeviceIcon kind="viewer" large />
+                <video ref={liveVideoRef} autoPlay playsInline aria-label="Live room video" />
                 <h2>{copy.viewerPaired}</h2>
                 <p>{copy.viewerPairedHelp}</p>
               </div>

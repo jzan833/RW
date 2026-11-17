@@ -129,6 +129,24 @@ export function createRwServer({
     response.json({ status: "paired" });
   });
 
+  app.get("/api/turn-credentials/:sessionId", (request, response) => {
+    const sessionId = request.params.sessionId;
+    const camera = cameraCredentials(sessionId, request.headers.authorization);
+    const viewer = viewerCredentials(request.headers.cookie);
+    const authorized = camera
+      ? sessionStore.authorizeSocket(sessionId, "camera", camera.cameraToken)
+      : Boolean(viewer && viewer.sessionId === sessionId && sessionStore.authorizeSocket(sessionId, "viewer", viewer.viewerToken));
+    const turnUrl = process.env.TURN_URL?.trim();
+    const turnUsername = process.env.TURN_USERNAME?.trim();
+    const turnCredential = process.env.TURN_CREDENTIAL?.trim();
+    if (!authorized || !turnUrl || !turnUsername || !turnCredential) {
+      unavailable(response);
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ iceServers: [{ urls: turnUrl, username: turnUsername, credential: turnCredential }] });
+  });
+
   app.use((
     error: unknown,
     _request: express.Request,
@@ -155,6 +173,60 @@ export function createRwServer({
 
   const httpServer = createServer(app);
   const io = new Server(httpServer);
+
+  io.use((socket, next) => {
+    const auth = socket.handshake.auth as Record<string, unknown>;
+    const cookieViewer = viewerCredentials(socket.handshake.headers.cookie);
+    const sessionId = typeof auth.sessionId === "string" ? auth.sessionId : cookieViewer?.sessionId ?? "";
+    const role = auth.role === "camera" || auth.role === "viewer" ? auth.role : "";
+    const token = typeof auth.token === "string" ? auth.token : cookieViewer?.viewerToken ?? "";
+    if (!role && !sessionId && !token) {
+      socket.data.anonymous = true;
+      next();
+      return;
+    }
+    if (!role || !opaqueIdSchema.safeParse(sessionId).success || !bearerTokenSchema.safeParse(`Bearer ${token}`).success) {
+      next(new Error("unauthorized"));
+      return;
+    }
+    if (!sessionStore.authorizeSocket(sessionId, role, token)) {
+      next(new Error("unauthorized"));
+      return;
+    }
+    socket.data.sessionId = sessionId;
+    socket.data.role = role;
+    next();
+  });
+
+  io.on("connection", (socket) => {
+    if (socket.data.anonymous) return;
+    const sessionId = socket.data.sessionId as string;
+    const role = socket.data.role as "camera" | "viewer";
+    const room = `session:${sessionId}`;
+    if (role === "viewer" && !sessionStore.claimViewerSocket(sessionId, socket.id)) {
+      socket.emit("rw:error", { code: "viewer_limit" });
+      socket.disconnect(true);
+      return;
+    }
+    void socket.join(room);
+    socket.to(room).emit("rw:peer-joined", { role });
+    io.to(room).emit("rw:viewer-count", { count: role === "viewer" ? 1 : 0 });
+
+    socket.on("rw:signal", (message: unknown) => {
+      if (!message || typeof message !== "object") return;
+      const value = message as Record<string, unknown>;
+      if (!(["offer", "answer", "ice"].includes(String(value.type)))) return;
+      const payload = value.payload;
+      if (payload === undefined) return;
+      socket.to(room).emit("rw:signal", { type: value.type, payload });
+    });
+
+    socket.on("disconnect", () => {
+      if (role === "viewer") sessionStore.releaseViewerSocket(sessionId, socket.id);
+      socket.to(room).emit("rw:peer-left", { role });
+      io.to(room).emit("rw:viewer-count", { count: 0 });
+    });
+  });
 
   return { app, httpServer, io, sessionStore };
 }
