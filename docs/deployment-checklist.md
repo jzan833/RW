@@ -6,7 +6,7 @@ User choice (2026-11-18): free hosting only, no domain purchase.
 - [x] Built frontend/API/Socket.IO served on one origin.
 - [x] HTTPS route/health/WebSocket smoke-check command.
 - [x] Source repository identified: `https://github.com/jzan833/RW.git`.
-- [ ] Source commit pushed and available to Render.
+- [x] Source commit `2fc010d` pushed to `origin/main`; Render repository access still needs authorization.
 - [ ] Render account connection.
 - [ ] Successful public deploy and actual provider URL.
 - [ ] Laptop + phone HTTPS and WSS checks with browser/network evidence.

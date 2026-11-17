@@ -9,7 +9,7 @@ The user chose free deployment on 2026-11-18. `render.yaml` configures one Rende
 | Requirement | Purpose | Setup state |
 | --- | --- | --- |
 | Render account and connected Render plugin | Create and inspect the free web service | User connection needed |
-| Git repository accessible by Render | Build the exact source revision | Target: https://github.com/jzan833/RW.git; push/access verification required |
+| Git repository accessible by Render | Build the exact source revision | https://github.com/jzan833/RW.git, `main` pushed; Render Git authorization pending |
 | `render.yaml`, `plan: free` | Select the free instance and reproducible build/start commands | Added |
 | `HOST=0.0.0.0`, provider `PORT`, `SERVE_WEB=true` | Accept provider traffic and serve frontend/API on one origin | Configured in Blueprint |
 | HTTPS endpoints and WSS handshake | Verify public connectivity, routes and API routing | Checker added; public URL pending |

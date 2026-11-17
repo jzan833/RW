@@ -11,7 +11,7 @@
 | T00 | Viewer cookie `Max-Age` နှင့် အများဆုံး supported monitoring duration ကို ဆုံးဖြတ်ပြီး requirements/security docs နှစ်ခုလုံးတွင် တူညီစွာရေးမည်။ | — | Docs နှစ်ခုတွင် **12 hours / 43,200 seconds** တစ်ခုတည်းရှိပြီး active session အတွင်း re-entry စည်းကမ်း မဆန့်ကျင်ကြောင်း review လုပ်ပြီးမှတ်ထားသည်။ | ပြီး |
 | T01 | React + TypeScript + Vite frontend အခြေခံနှင့် camera/viewer screen route များ တည်ဆောက်မည်။ | — | Frontend build အောင်မြင်ပြီး laptop/phone viewport နှစ်ခုတွင် role screen နှစ်ခု ဖွင့်နိုင်သည်။ | ပြီး — ၂၀၂၆-၁၁-၁၈ တွင် user က laptop/phone visual check ပြီးကြောင်း အတည်ပြုထားသည်။ |
 | T02 | Node + Express + Socket.IO backend အခြေခံနှင့် health endpoint တည်ဆောက်မည်။ | — | Local health request အောင်မြင်၊ Socket.IO client တစ်ခု ချိတ်/ဖြုတ်နိုင်ပြီး server error မရှိ။ | ပြီး |
-| T03 | Free provider URL နှင့် managed HTTPS/WSS ဖြင့် frontend/backend ကို deploy လုပ်မည်။ မူလ VPS/Caddy recipe ကို alternative အဖြစ်ထားမည်။ | T01, T02 | Laptop နှင့် phone မှ HTTPS certificate မှန်ကန်စွာ site ဖွင့်နိုင်ပြီး health API နှင့် WSS handshake အောင်မြင်သည်။ | လုပ်ဆောင်နေ — Render Free Blueprint နှင့် same-origin app serving ပြင်ဆင်ထား။ Render connection/source remote နှင့် public acceptance ကျန်။ |
+| T03 | Free provider URL နှင့် managed HTTPS/WSS ဖြင့် frontend/backend ကို deploy လုပ်မည်။ မူလ VPS/Caddy recipe ကို alternative အဖြစ်ထားမည်။ | T01, T02 | Laptop နှင့် phone မှ HTTPS certificate မှန်ကန်စွာ site ဖွင့်နိုင်ပြီး health API နှင့် WSS handshake အောင်မြင်သည်။ | လုပ်ဆောင်နေ — Blueprint/source ကို GitHub main ပေါ် push ပြီး။ Render account/Git authorization နှင့် public acceptance ကျန်။ |
 | T04 | Free managed STUN/TURN service နှင့် short-lived test credentials ပြင်ဆင်မည်။ မူလ coturn VPS recipe ကို alternative အဖြစ်ထားမည်။ | T03 | Test client မှ STUN candidate နှင့် TURN `relay` candidate ရသည်; credential မရှိလျှင် TURN allocation မရ။ | ပိတ်ဆို့နေ — T03 public deployment၊ managed TURN account/API access နှင့် quota/retention review ကျန်။ |
 | T05 | Camera permission၊ local preview နှင့် permission/hardware error UI တည်ဆောက်မည် (F01)။ | T01, T03 | Laptop နှင့် phone browser မှ permission ပေးပြီး local preview ပေါ်သည်; ပယ်ချလျှင် capture မစဘဲ error ပြသည်။ | မစသေး |
 | T06 | Backend monitoring session၊ camera role token၊ invite ထုတ်/အသစ်ထုတ် API နှင့် Stop/restart အတွက် ယာယီ state တည်ဆောက်မည် (F02, F07)။ | T02 | Camera session စလျှင် ID/token/invite ရ၊ invite အသစ်ထုတ်နိုင်၊ Stop လျှင် session ပျက်၊ backend restart နောက် session ဟောင်း မရှိတော့ကြောင်း API စစ်ချက် အောင်မြင်သည်။ | မစသေး |
@@ -111,3 +111,9 @@
 
 - User က `https://github.com/jzan833/RW.git` ကို deployment source အဖြစ်ပေးထားသည်။ `git ls-remote` အောင်မြင်ပြီး HEAD/main/master refs မရှိသေးကြောင်း စစ်တွေ့သည်။
 - Local source ကို verification/credential-pattern scan ပြီးမှ push လုပ်ရန် ပြင်ဆင်သည်။ Render integration သည် discovery စစ်ချိန်တွင် connected မဖြစ်သေး။ Public deploy/HTTPS/WSS/TURN acceptance မပြီးသေး။
+
+## GitHub source publication — ၂၀၂၆-၁၁-၁၈
+
+- `origin` ကို user ပေးထားသော `https://github.com/jzan833/RW.git` သို့ ချိတ်ထားသည်။ `2fc010d` (`feat: prepare RW free deployment`) ကို `main` branch ပေါ် push အောင်မြင်ပြီး upstream `origin/main` ချိတ်ထားသည်။
+- Push မလုပ်မီ `npm.cmd run typecheck`, `npm.cmd test` (၈ tests), `npm.cmd run build`, credential-pattern scan နှင့် tracked local-file check pass။ Pattern scan သည် credentials အားလုံးမရှိကြောင်း အပြည့်အစုံအာမခံခြင်းမဟုတ်။
+- Render account integration မချိတ်ရသေးသောကြောင့် service creation/deploy မလုပ်ရသေး။ Next: Render → New → Blueprint → jzan833/RW → main/render.yaml → Free → Deploy Blueprint။ Public URL ရမှ HTTPS/WSS နှင့် laptop/phone acceptance ဆက်စစ်ရန်။
