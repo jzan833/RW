@@ -7,11 +7,13 @@ import { Server } from "socket.io";
 import { z } from "zod";
 import { MonitoringSessionStore } from "./session-store.js";
 import { SlidingWindowRateLimiter } from "./rate-limiter.js";
+import { issueIceServers } from "./turn-service.js";
 
 type CreateRwServerOptions = {
   serveWeb?: boolean;
   sessionSecret?: string | Uint8Array;
   now?: () => number;
+  issueTurn?: typeof issueIceServers;
 };
 
 const processSessionSecret = process.env.SESSION_SECRET?.trim() || randomBytes(32);
@@ -30,10 +32,12 @@ const VIEWER_COOKIE_MAX_AGE_SECONDS = 43_200;
 export function createRwServer({
   serveWeb = false,
   sessionSecret = processSessionSecret,
-  now
+  now,
+  issueTurn = issueIceServers
 }: CreateRwServerOptions = {}) {
   const app = express();
   const sessionStore = new MonitoringSessionStore({ secret: sessionSecret, now });
+  const turnCache = new Map<string, { iceServers: Awaited<ReturnType<typeof issueIceServers>>; validUntil: number }>();
   const pairingIpLimiter = new SlidingWindowRateLimiter({
     limit: PAIRING_IP_LIMIT,
     windowMs: PAIRING_IP_WINDOW_MS,
@@ -88,6 +92,8 @@ export function createRwServer({
       return;
     }
 
+    turnCache.delete(credentials.sessionId);
+
     response.status(204).end();
   });
 
@@ -139,22 +145,29 @@ export function createRwServer({
     response.json({ sessionId: credentials.sessionId });
   });
 
-  app.get("/api/turn-credentials/:sessionId", (request, response) => {
+  app.get("/api/turn-credentials/:sessionId", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
     const sessionId = request.params.sessionId;
     const camera = cameraCredentials(sessionId, request.headers.authorization);
     const viewer = viewerCredentials(request.headers.cookie);
     const authorized = camera
       ? sessionStore.authorizeSocket(sessionId, "camera", camera.cameraToken)
       : Boolean(viewer && viewer.sessionId === sessionId && sessionStore.authorizeSocket(sessionId, "viewer", viewer.viewerToken));
-    const turnUrl = process.env.TURN_URL?.trim();
-    const turnUsername = process.env.TURN_USERNAME?.trim();
-    const turnCredential = process.env.TURN_CREDENTIAL?.trim();
-    if (!authorized || !turnUrl || !turnUsername || !turnCredential) {
+    if (!authorized) {
       unavailable(response);
       return;
     }
-    response.setHeader("Cache-Control", "no-store");
-    response.json({ iceServers: [{ urls: turnUrl, username: turnUsername, credential: turnCredential }] });
+    try {
+      const current = (now ?? Date.now)();
+      let cached = turnCache.get(sessionId);
+      if (!cached || cached.validUntil <= current) {
+        cached = { iceServers: await issueTurn(), validUntil: current + 45 * 60_000 };
+        turnCache.set(sessionId, cached);
+      }
+      response.json({ iceServers: cached.iceServers, expiresInSeconds: 3600 });
+    } catch {
+      response.status(503).json({ error: "TURN unavailable" });
+    }
   });
 
   app.use((

@@ -332,7 +332,7 @@ describe("T07 camera pairing display", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
     fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
     await screen.findByRole("heading", { name: "Pair this viewer" });
-    fireEvent.click(screen.getByRole("button", { name: "Stop camera" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop Monitoring" }));
 
     await waitFor(() => {
       const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");

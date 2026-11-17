@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { io as createClient, type Socket } from "socket.io-client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRwServer } from "../src/index.ts";
 import {
   INVITE_REGENERATE_LIMIT,
@@ -415,6 +415,37 @@ const viewerCookieHeader = (response: Response) => {
     requestHeader: setCookie.split(";", 1)[0]
   };
 };
+
+describe("T14 short-lived TURN authorization", () => {
+  it("only issues ICE servers to the paired viewer or camera and rejects stopped sessions", async () => {
+    const issueTurn = vi.fn().mockResolvedValue([{ urls: "turn:relay.example.test", username: "temporary", credential: "temporary" }]);
+    const instance = createRwServer({ issueTurn });
+    instance.httpServer.listen(0, "127.0.0.1");
+    await once(instance.httpServer, "listening");
+    try {
+      const session = await createMonitoringSession(instance);
+      const paired = await pairViewer(instance, session.invite.inviteId, session.invite.pin);
+      const cookie = viewerCookieHeader(paired);
+      const address = instance.httpServer.address() as AddressInfo;
+      const endpoint = `http://127.0.0.1:${address.port}/api/turn-credentials/${session.sessionId}`;
+      expect((await fetch(endpoint)).status).toBe(404);
+      expect(issueTurn).not.toHaveBeenCalled();
+      const viewer = await fetch(endpoint, { headers: { Cookie: cookie.requestHeader } });
+      expect(viewer.status).toBe(200);
+      expect(viewer.headers.get("cache-control")).toBe("no-store");
+      expect((await viewer.json() as { expiresInSeconds: number }).expiresInSeconds).toBe(3600);
+      expect((await fetch(endpoint, { headers: { Authorization: `Bearer ${session.cameraToken}` } })).status).toBe(200);
+      await fetch(`http://127.0.0.1:${address.port}/api/monitoring-sessions/${session.sessionId}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${session.cameraToken}` }
+      });
+      expect((await fetch(endpoint, { headers: { Cookie: cookie.requestHeader } })).status).toBe(404);
+      expect(issueTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      instance.io.close();
+      await new Promise<void>((resolve) => instance.httpServer.close(() => resolve()));
+    }
+  });
+});
 
 describe("T10 persistent viewer cookie", () => {
   it("sets a twelve-hour Secure HttpOnly SameSite cookie after pairing", async () => {
