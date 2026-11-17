@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import QRCode from "qrcode";
 import App from "./App";
 
 type FakeTrack = {
@@ -52,6 +53,26 @@ const installMediaDevices = (
   return enumerateDevices;
 };
 
+const sessionPayload = ({
+  inviteId = "i".repeat(43),
+  pin = "123456",
+  inviteExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString()
+}: {
+  inviteId?: string;
+  pin?: string;
+  inviteExpiresAt?: string;
+} = {}) => ({
+  sessionId: "s".repeat(43),
+  cameraToken: "t".repeat(43),
+  expiresAt: new Date(Date.now() + 12 * 60 * 60_000).toISOString(),
+  invite: { inviteId, pin, expiresAt: inviteExpiresAt }
+});
+
+const jsonResponse = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
+  status,
+  headers: { "Content-Type": "application/json" }
+});
+
 beforeEach(() => {
   localStorage.clear();
   window.history.replaceState({}, "", "/");
@@ -70,6 +91,7 @@ afterEach(() => {
   else Reflect.deleteProperty(navigator, "mediaDevices");
   if (originalPlay) Object.defineProperty(HTMLMediaElement.prototype, "play", originalPlay);
   else Reflect.deleteProperty(HTMLMediaElement.prototype, "play");
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -116,6 +138,8 @@ describe("T05 camera preview", () => {
     expect(screen.getByRole("heading", { name: "Set up this room camera" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start camera" })).toBeTruthy();
     expect(screen.getByText("Camera is off")).toBeTruthy();
+    expect(screen.getByText("CAM_NODE / 01")).toBeTruthy();
+    expect(screen.getByText("STORE / OFF")).toBeTruthy();
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
@@ -220,5 +244,105 @@ describe("T05 camera preview", () => {
     expect(videoTrack.stop).toHaveBeenCalledOnce();
     expect(extraTrack.stop).toHaveBeenCalledOnce();
     expect(window.location.pathname).toBe("/");
+  });
+});
+
+describe("T07 camera pairing display", () => {
+  it("creates a QR link without the PIN and shows the PIN separately", async () => {
+    const { stream } = makeStream();
+    installMediaDevices(vi.fn().mockResolvedValue(stream));
+    const payload = sessionPayload();
+    const qrSpy = vi.spyOn(QRCode, "toString");
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(payload, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    expect(screen.queryByRole("button", { name: "Create pairing code" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+
+    expect(await screen.findByRole("heading", { name: "Pair this viewer" })).toBeTruthy();
+    expect(screen.getByLabelText("Pairing PIN 123456")).toBeTruthy();
+    const pairingLink = screen.getByRole("link", { name: "Open pairing page" }) as HTMLAnchorElement;
+    const pairingUrl = new URL(pairingLink.href);
+    expect(pairingUrl.pathname).toBe("/viewer");
+    expect(pairingUrl.searchParams.get("invite") === payload.invite.inviteId).toBe(true);
+    expect(pairingUrl.searchParams.has("pin")).toBe(false);
+    expect(pairingLink.href.includes(payload.invite.pin)).toBe(false);
+    expect(await screen.findByRole("img", { name: "Viewer pairing QR code" })).toBeTruthy();
+    expect(qrSpy.mock.calls.some(([value]) => value === pairingLink.href)).toBe(true);
+    expect(screen.queryByText(/monitoring active/i)).toBeNull();
+  });
+
+  it("hides an expired QR/PIN and regenerates a fresh invite", async () => {
+    const { stream } = makeStream();
+    installMediaDevices(vi.fn().mockResolvedValue(stream));
+    const expired = sessionPayload({
+      inviteExpiresAt: new Date(Date.now() - 1_000).toISOString()
+    });
+    const freshInvite = {
+      inviteId: "n".repeat(43),
+      pin: "654321",
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString()
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/invite") && init?.method === "POST") {
+        return jsonResponse({ invite: freshInvite }, 201);
+      }
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(expired, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+
+    expect(await screen.findByText("Pairing code expired")).toBeTruthy();
+    expect(screen.queryByLabelText("Pairing PIN 123456")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open pairing page" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate code" }));
+
+    expect(await screen.findByLabelText("Pairing PIN 654321")).toBeTruthy();
+    const regeneratedLink = screen.getByRole("link", { name: "Open pairing page" }) as HTMLAnchorElement;
+    expect(new URL(regeneratedLink.href).searchParams.get("invite") === freshInvite.inviteId).toBe(true);
+    const regenerateCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/invite"));
+    const regenerateHeaders = regenerateCall?.[1]?.headers as Record<string, string>;
+    expect(regenerateHeaders.Authorization === `Bearer ${expired.cameraToken}`).toBe(true);
+  });
+
+  it("revokes the backend session when Stop camera is clicked", async () => {
+    const media = makeStream();
+    installMediaDevices(vi.fn().mockResolvedValue(media.stream));
+    const payload = sessionPayload();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(payload, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+    await screen.findByRole("heading", { name: "Pair this viewer" });
+    fireEvent.click(screen.getByRole("button", { name: "Stop camera" }));
+
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(Boolean(deleteCall)).toBe(true);
+    });
+    const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+    const deleteHeaders = deleteCall?.[1]?.headers as Record<string, string>;
+    expect(deleteHeaders.Authorization === `Bearer ${payload.cameraToken}`).toBe(true);
+    expect(screen.queryByRole("heading", { name: "Pair this viewer" })).toBeNull();
+    expect(media.videoTrack.stop).toHaveBeenCalledOnce();
+    expect(media.extraTrack.stop).toHaveBeenCalledOnce();
   });
 });

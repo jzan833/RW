@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 
 type Mode = "home" | "camera" | "viewer";
 type AppPath = "/" | "/camera" | "/viewer";
 type Locale = "en" | "my";
 type Theme = "dark" | "light";
 type CameraState = "idle" | "requesting" | "preview" | "error";
+type PairingState = "idle" | "creating" | "ready" | "regenerating";
+
+type CameraSession = {
+  sessionId: string;
+  cameraToken: string;
+  expiresAt: string;
+  invite: PairingInvite;
+};
+
+type PairingInvite = {
+  inviteId: string;
+  pin: string;
+  expiresAt: string;
+};
 
 const messages = {
   en: {
@@ -47,6 +62,21 @@ const messages = {
     localPreview: "Local camera preview",
     phoneNote: "On a phone, choose the front or back camera here. Keep the screen on and RW in the foreground.",
     noRecording: "This preview stays on this device and is not recorded.",
+    createPairing: "Create pairing code",
+    creatingPairing: "Creating secure code…",
+    cameraPairingTitle: "Pair this viewer",
+    pairingReady: "Pairing code ready",
+    pairingHelp: "Scan the QR code on the viewer phone, then enter the separate six-digit PIN.",
+    pairingPin: "Pairing PIN",
+    expiresIn: "Expires in",
+    inviteExpired: "Pairing code expired",
+    inviteExpiredHelp: "This QR code and PIN can no longer be used. Generate a new code to pair.",
+    regenerateInvite: "Regenerate code",
+    regeneratingInvite: "Generating new code…",
+    openPairingPage: "Open pairing page",
+    generatingQr: "Generating QR code…",
+    pairingError: "RW could not create a pairing code. Check the connection and try again.",
+    sessionEnded: "The pairing session ended. Create a new pairing code.",
     errorDenied: "Camera access was blocked. Allow camera access for this site in browser settings, then try again.",
     errorNotFound: "No camera was found. Connect or enable a camera, then try again.",
     errorBusy: "The camera is busy or unavailable. Close other apps using it, then try again.",
@@ -103,6 +133,21 @@ const messages = {
     localPreview: "Local camera preview",
     phoneNote: "ဖုန်းမှာ front သို့မဟုတ် back camera ကို ဒီနေရာကရွေးပါ။ Screen ဖွင့်ထားပြီး RW ကို foreground မှာထားပါ။",
     noRecording: "ဒီ preview က ဒီ device ပေါ်မှာပဲရှိပြီး record မလုပ်ပါ။",
+    createPairing: "Pairing code ထုတ်မယ်",
+    creatingPairing: "လုံခြုံသော code ထုတ်နေသည်…",
+    cameraPairingTitle: "Viewer ကို Pair လုပ်ပါ",
+    pairingReady: "Pairing code အဆင်သင့်ဖြစ်ပြီ",
+    pairingHelp: "Viewer ဖုန်းနဲ့ QR code ကို scan လုပ်ပြီး သီးခြား ဂဏန်းခြောက်လုံး PIN ကိုထည့်ပါ။",
+    pairingPin: "Pairing PIN",
+    expiresIn: "သက်တမ်းကျန်ချိန်",
+    inviteExpired: "Pairing code သက်တမ်းကုန်သွားပြီ",
+    inviteExpiredHelp: "ဒီ QR code နဲ့ PIN ကို ဆက်သုံးလို့မရတော့ပါ။ Pair လုပ်ရန် code အသစ်ထုတ်ပါ။",
+    regenerateInvite: "Code အသစ်ထုတ်မယ်",
+    regeneratingInvite: "Code အသစ်ထုတ်နေသည်…",
+    openPairingPage: "Pairing စာမျက်နှာဖွင့်မယ်",
+    generatingQr: "QR code ထုတ်နေသည်…",
+    pairingError: "Pairing code မထုတ်နိုင်ပါ။ Internet connection ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    sessionEnded: "Pairing session ပြီးဆုံးသွားပါပြီ။ Pairing code အသစ်ထုတ်ပါ။",
     errorDenied: "Camera access ကိုပိတ်ထားပါတယ်။ Browser settings မှာ ဒီ site အတွက် camera ကို Allow လုပ်ပြီး ပြန်စမ်းပါ။",
     errorNotFound: "Camera မတွေ့ပါ။ Camera ကိုချိတ်ဆက် သို့မဟုတ် ဖွင့်ပြီး ပြန်စမ်းပါ။",
     errorBusy: "Camera ကို အခြား app ကသုံးနေခြင်း သို့မဟုတ် အသုံးမပြုနိုင်ခြင်းဖြစ်နိုင်ပါတယ်။ အခြား app ကိုပိတ်ပြီး ပြန်စမ်းပါ။",
@@ -133,6 +178,60 @@ const initialTheme = (): Theme => {
   const stored = localStorage.getItem("rw-theme");
   if (stored === "dark" || stored === "light") return stored;
   return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+};
+
+const opaqueValuePattern = /^[A-Za-z0-9_-]{43}$/;
+
+const isPairingInvite = (value: unknown): value is PairingInvite => {
+  if (!value || typeof value !== "object") return false;
+  const invite = value as Record<string, unknown>;
+  return (
+    typeof invite.inviteId === "string" &&
+    opaqueValuePattern.test(invite.inviteId) &&
+    typeof invite.pin === "string" &&
+    /^\d{6}$/.test(invite.pin) &&
+    typeof invite.expiresAt === "string" &&
+    Number.isFinite(Date.parse(invite.expiresAt))
+  );
+};
+
+const isCameraSession = (value: unknown): value is CameraSession => {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Record<string, unknown>;
+  return (
+    typeof session.sessionId === "string" &&
+    opaqueValuePattern.test(session.sessionId) &&
+    typeof session.cameraToken === "string" &&
+    opaqueValuePattern.test(session.cameraToken) &&
+    typeof session.expiresAt === "string" &&
+    Number.isFinite(Date.parse(session.expiresAt)) &&
+    isPairingInvite(session.invite)
+  );
+};
+
+const pairingUrlFor = (inviteId: string) => {
+  const url = new URL("/viewer", window.location.origin);
+  url.searchParams.set("invite", inviteId);
+  return url.toString();
+};
+
+const formatCountdown = (remainingMs: number) => {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+};
+
+const revokeCameraSession = (session: CameraSession, keepalive = false) => {
+  try {
+    void fetch(`/api/monitoring-sessions/${encodeURIComponent(session.sessionId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.cameraToken}` },
+      keepalive
+    }).catch(() => undefined);
+  } catch {
+    // The in-memory session expires server-side even if a page-exit request cannot be sent.
+  }
 };
 
 export default function App() {
@@ -248,9 +347,16 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [resolution, setResolution] = useState("");
+  const [cameraSession, setCameraSession] = useState<CameraSession>();
+  const [pairingState, setPairingState] = useState<PairingState>("idle");
+  const [pairingError, setPairingError] = useState("");
+  const [qrCode, setQrCode] = useState("");
+  const [clock, setClock] = useState(Date.now);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const sessionRef = useRef<CameraSession | undefined>(undefined);
   const operationRef = useRef(0);
+  const pairingOperationRef = useRef(0);
   const mountedRef = useRef(true);
 
   const stopTracks = (stream: MediaStream | null) => {
@@ -268,10 +374,45 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     return () => {
       mountedRef.current = false;
       operationRef.current += 1;
+      pairingOperationRef.current += 1;
       stopTracks(streamRef.current);
       streamRef.current = null;
+      const activeSession = sessionRef.current;
+      sessionRef.current = undefined;
+      if (activeSession) revokeCameraSession(activeSession, true);
     };
   }, []);
+
+  useEffect(() => {
+    if (!cameraSession) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [cameraSession?.invite.expiresAt]);
+
+  useEffect(() => {
+    if (!cameraSession) {
+      setQrCode("");
+      return;
+    }
+
+    let cancelled = false;
+    const pairUrl = pairingUrlFor(cameraSession.invite.inviteId);
+    void QRCode.toString(pairUrl, {
+      type: "svg",
+      margin: 1,
+      width: 320,
+      color: { dark: "#06111f", light: "#ffffff" }
+    }).then((svg) => {
+      if (!cancelled) setQrCode(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    }).catch(() => {
+      if (!cancelled) setQrCode("");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraSession?.invite.inviteId]);
 
   const errorFor = (error: unknown) => {
     if (!(error instanceof DOMException)) return copy.errorGeneric;
@@ -280,6 +421,91 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     if (error.name === "NotReadableError" || error.name === "TrackStartError" || error.name === "AbortError") return copy.errorBusy;
     if (error.name === "SecurityError") return copy.errorSecurity;
     return copy.errorGeneric;
+  };
+
+  const clearPairingSession = (revoke = true) => {
+    pairingOperationRef.current += 1;
+    const activeSession = sessionRef.current;
+    sessionRef.current = undefined;
+    setCameraSession(undefined);
+    setPairingState("idle");
+    setPairingError("");
+    setQrCode("");
+    if (revoke && activeSession) revokeCameraSession(activeSession);
+  };
+
+  const createPairingSession = async () => {
+    const operation = pairingOperationRef.current + 1;
+    pairingOperationRef.current = operation;
+    setPairingState("creating");
+    setPairingError("");
+
+    try {
+      const response = await fetch("/api/monitoring-sessions", {
+        method: "POST",
+        headers: { Accept: "application/json" }
+      });
+      const payload: unknown = response.ok ? await response.json() : undefined;
+      if (!response.ok || !isCameraSession(payload)) throw new Error("invalid session response");
+      if (!mountedRef.current || pairingOperationRef.current !== operation) {
+        revokeCameraSession(payload);
+        return;
+      }
+
+      sessionRef.current = payload;
+      setCameraSession(payload);
+      setClock(Date.now());
+      setPairingState("ready");
+    } catch {
+      if (!mountedRef.current || pairingOperationRef.current !== operation) return;
+      setPairingState("idle");
+      setPairingError(copy.pairingError);
+    }
+  };
+
+  const regenerateInvite = async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession) return;
+    const operation = pairingOperationRef.current + 1;
+    pairingOperationRef.current = operation;
+    setPairingState("regenerating");
+    setPairingError("");
+
+    try {
+      const response = await fetch(
+        `/api/monitoring-sessions/${encodeURIComponent(activeSession.sessionId)}/invite`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${activeSession.cameraToken}`
+          }
+        }
+      );
+      const payload: unknown = response.ok ? await response.json() : undefined;
+      const nextInvite = payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>).invite
+        : undefined;
+      if (!response.ok || !isPairingInvite(nextInvite)) {
+        if (response.status === 404) {
+          clearPairingSession(false);
+          setPairingError(copy.sessionEnded);
+          return;
+        }
+        throw new Error("invalid invite response");
+      }
+      if (!mountedRef.current || pairingOperationRef.current !== operation) return;
+
+      const nextSession = { ...activeSession, invite: nextInvite };
+      sessionRef.current = nextSession;
+      setCameraSession(nextSession);
+      setClock(Date.now());
+      setPairingState("ready");
+    } catch {
+      if (!mountedRef.current || pairingOperationRef.current !== operation) return;
+      setPairingState("ready");
+      setPairingError(copy.pairingError);
+    }
   };
 
   const openCamera = async (deviceId?: string) => {
@@ -312,6 +538,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       videoTrack?.addEventListener("ended", () => {
         if (!mountedRef.current || streamRef.current !== stream) return;
         operationRef.current += 1;
+        clearPairingSession();
         clearStream();
         setResolution("");
         setErrorMessage(copy.errorInterrupted);
@@ -342,6 +569,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
   const stopCamera = () => {
     operationRef.current += 1;
+    clearPairingSession();
     clearStream();
     setResolution("");
     setErrorMessage("");
@@ -355,6 +583,10 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       : cameraState === "error"
         ? copy.errorStatus
         : copy.idleStatus;
+  const inviteExpiresAt = cameraSession ? Date.parse(cameraSession.invite.expiresAt) : 0;
+  const inviteExpired = Boolean(cameraSession && inviteExpiresAt <= clock);
+  const inviteCountdown = formatCountdown(inviteExpiresAt - clock);
+  const pairUrl = cameraSession ? pairingUrlFor(cameraSession.invite.inviteId) : "";
 
   return (
     <main className="page-shell">
@@ -397,17 +629,35 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
             <div className="camera-actions">
               {cameraState === "preview" ? (
-                <button className="primary-button stop-button" type="button" onClick={stopCamera}>{copy.stopCamera}</button>
+                <>
+                  {!cameraSession ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={pairingState === "creating"}
+                      onClick={() => void createPairingSession()}
+                    >
+                      {pairingState === "creating" ? copy.creatingPairing : copy.createPairing}
+                    </button>
+                  ) : null}
+                  <button className="primary-button stop-button" type="button" onClick={stopCamera}>{copy.stopCamera}</button>
+                </>
               ) : (
                 <button className="primary-button" type="button" disabled={cameraState === "requesting"} onClick={() => void openCamera()}>
                   {cameraState === "requesting" ? copy.startingCamera : cameraState === "error" ? copy.tryAgain : copy.startCamera}
                 </button>
               )}
             </div>
+            {pairingError ? <div className="camera-error" role="alert"><strong>!</strong><p>{pairingError}</p></div> : null}
             {errorMessage ? <div className="camera-error" role="alert"><strong>!</strong><p>{errorMessage}</p></div> : null}
           </div>
 
           <section className="preview-panel">
+            <div className="tech-telemetry" aria-hidden="true">
+              <span>CAM_NODE / 01</span>
+              <span>VIDEO / {cameraState.toUpperCase()}</span>
+              <span>STORE / OFF</span>
+            </div>
             <div className={`preview-frame preview-${cameraState}`}>
               <video ref={videoRef} autoPlay muted playsInline aria-label={copy.localPreview} />
               {cameraState !== "preview" ? (
@@ -430,6 +680,62 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
             </div>
           </section>
         </section>
+
+        {cameraSession ? (
+          <section className={`pairing-console${inviteExpired ? " pairing-console-expired" : ""}`} aria-labelledby="pairing-title">
+            <div className="pairing-console-header">
+              <div>
+                <p className="eyebrow"><span aria-hidden="true">●</span> SECURE PAIR / QR + PIN</p>
+                <h2 id="pairing-title">{copy.cameraPairingTitle}</h2>
+              </div>
+              <div className={`status-row ${inviteExpired ? "status-error" : "status-preview"}`} role="status">
+                <span className="status-dot" aria-hidden="true" />
+                <p>{inviteExpired ? copy.inviteExpired : copy.pairingReady}</p>
+              </div>
+            </div>
+
+            <div className="pairing-console-body">
+              <div className="qr-module">
+                {inviteExpired ? (
+                  <div className="qr-expired" aria-hidden="true"><span>×</span>QR EXPIRED</div>
+                ) : qrCode ? (
+                  <img src={qrCode} alt="Viewer pairing QR code" />
+                ) : (
+                  <div className="qr-loading" role="status">{copy.generatingQr}</div>
+                )}
+                {!inviteExpired ? (
+                  <a href={pairUrl} target="_blank" rel="noreferrer">{copy.openPairingPage}</a>
+                ) : null}
+              </div>
+
+              <div className="pin-module">
+                <p>{copy.pairingHelp}</p>
+                <span className="pin-label">{copy.pairingPin}</span>
+                {inviteExpired ? (
+                  <div className="pin-digits pin-digits-expired" aria-label={copy.inviteExpired}>••••••</div>
+                ) : (
+                  <div className="pin-digits" aria-label={`${copy.pairingPin} ${cameraSession.invite.pin}`}>
+                    {cameraSession.invite.pin.split("").map((digit, index) => (
+                      <span key={index} aria-hidden="true">{digit}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="invite-expiry">
+                  <span>{inviteExpired ? copy.inviteExpiredHelp : copy.expiresIn}</span>
+                  {!inviteExpired ? <time dateTime={cameraSession.invite.expiresAt}>{inviteCountdown}</time> : null}
+                </div>
+                <button
+                  className="regenerate-button"
+                  type="button"
+                  disabled={pairingState === "regenerating"}
+                  onClick={() => void regenerateInvite()}
+                >
+                  {pairingState === "regenerating" ? copy.regeneratingInvite : copy.regenerateInvite}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );
