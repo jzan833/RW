@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import QRCode from "qrcode";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import App from "./App";
 
 type FakeTrack = {
@@ -348,6 +349,34 @@ describe("T07 camera pairing display", () => {
 });
 
 describe("T08/T10 viewer pairing and re-entry UI", () => {
+  it("scans a same-site pairing QR and then asks for the separate PIN", async () => {
+    window.history.replaceState({}, "", "/viewer");
+    const controls = { stop: vi.fn() };
+    const decodeSpy = vi.spyOn(BrowserMultiFormatReader.prototype, "decodeFromVideoDevice").mockImplementation(async (_deviceId, _video, callback) => {
+      callback({ getText: () => `${window.location.origin}/viewer?invite=${"i".repeat(43)}` } as never, undefined, controls);
+      return controls;
+    });
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Scan camera QR code" }));
+    expect(await screen.findByLabelText("Six-digit pairing PIN")).toBeTruthy();
+    expect(decodeSpy).toHaveBeenCalled();
+    expect(controls.stop).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Pair viewer" })).toBeTruthy();
+  });
+
+  it("accepts a pasted same-site pairing link when camera scanning is unavailable", async () => {
+    window.history.replaceState({}, "", "/viewer");
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Pairing link"), {
+      target: { value: `${window.location.origin}/viewer?invite=${"i".repeat(43)}` }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use pairing link" }));
+
+    expect(await screen.findByLabelText("Six-digit pairing PIN")).toBeTruthy();
+  });
+
   it("submits the QR invite with a six-digit PIN and clears the invite URL", async () => {
     const inviteId = "i".repeat(43);
     window.history.replaceState({}, "", `/viewer?invite=${inviteId}`);

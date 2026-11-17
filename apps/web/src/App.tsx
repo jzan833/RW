@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import type { IScannerControls } from "@zxing/browser";
 import { io, type Socket } from "socket.io-client";
 
 type Mode = "home" | "camera" | "viewer";
@@ -103,7 +104,14 @@ const messages = {
     viewerPairedHelp: "This browser is authorized. Live connection setup comes next.",
     pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
     pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
-    invalidInviteViewer: "This pairing link is invalid. Scan a new QR code from the camera."
+    invalidInviteViewer: "This pairing link is invalid. Scan a new QR code from the camera.",
+    scanQr: "Scan camera QR code",
+    stopScan: "Stop scanning",
+    scanHelp: "Allow camera access, then point this device at the QR code shown on the camera screen.",
+    pairingLinkLabel: "Pairing link",
+    pairingLinkPlaceholder: "Paste the camera QR link",
+    usePairingLink: "Use pairing link",
+    scanUnavailable: "Could not scan. Allow camera access or paste the pairing link below."
   },
   my: {
     brandName: "Room Watch",
@@ -184,7 +192,14 @@ const messages = {
     viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live connection ကို နောက်အဆင့်မှာချိတ်ပါမယ်။",
     pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
     pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
-    invalidInviteViewer: "ဒီ pairing link မမှန်ပါ။ Camera မှ QR code အသစ်ကို scan လုပ်ပါ။"
+    invalidInviteViewer: "ဒီ pairing link မမှန်ပါ။ Camera မှ QR code အသစ်ကို scan လုပ်ပါ။",
+    scanQr: "Camera QR code scan မယ်",
+    stopScan: "Scan ရပ်မယ်",
+    scanHelp: "Camera access ခွင့်ပြုပြီး ဒီ device ကို camera ပေါ် QR code ဆီ ဦးတည်ပါ။",
+    pairingLinkLabel: "Pairing link",
+    pairingLinkPlaceholder: "Camera QR link ကို paste လုပ်ပါ",
+    usePairingLink: "Pairing link သုံးမယ်",
+    scanUnavailable: "Scan မလုပ်နိုင်ပါ။ Camera access ခွင့်ပြုပါ သို့မဟုတ် pairing link ကို အောက်မှာ paste လုပ်ပါ။"
   }
 } as const;
 
@@ -236,6 +251,17 @@ const pairingUrlFor = (inviteId: string) => {
   url.searchParams.set("invite", inviteId);
   return url.toString();
 };
+
+function inviteIdFromPairingText(value: string): string | undefined {
+  try {
+    const link = new URL(value.trim());
+    if (link.origin !== window.location.origin || link.pathname !== "/viewer") return undefined;
+    const inviteId = link.searchParams.get("invite") ?? "";
+    return opaqueValuePattern.test(inviteId) ? inviteId : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 type IceServerResponse = { iceServers?: RTCIceServer[] };
 
@@ -826,18 +852,70 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
 function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSettings) {
   const copy = messages[settings.locale];
-  const inviteId = new URLSearchParams(window.location.search).get("invite") ?? "";
+  const queryInviteId = new URLSearchParams(window.location.search).get("invite") ?? "";
+  const [scannedInviteId, setScannedInviteId] = useState("");
+  const inviteId = opaqueValuePattern.test(queryInviteId) ? queryInviteId : scannedInviteId;
   const inviteValid = opaqueValuePattern.test(inviteId);
   const [pin, setPin] = useState("");
+  const [pairingLink, setPairingLink] = useState("");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scannerError, setScannerError] = useState("");
   const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
-  const [viewerError, setViewerError] = useState(inviteId && !inviteValid ? copy.invalidInviteViewer : "");
+  const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
   const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected">("connecting");
   const [connectionRoute, setConnectionRoute] = useState<"relay" | "direct" | "unknown">("unknown");
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
+  const scannerVideoRef = useRef<HTMLVideoElement>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   useEffect(() => {
-    if (inviteId || pairingState === "paired") return;
+    if (!scanOpen || inviteValid || pairingState === "paired" || !scannerVideoRef.current) return;
+    let cancelled = false;
+    let controls: IScannerControls | undefined;
+    const videoElement = scannerVideoRef.current;
+    void import("@zxing/browser").then(({ BrowserMultiFormatReader }) => {
+      if (cancelled) return undefined;
+      const reader = new BrowserMultiFormatReader();
+      return reader.decodeFromVideoDevice(undefined, videoElement, (result, _error, activeControls) => {
+        if (!result || cancelled) return;
+        const scannedInvite = inviteIdFromPairingText(result.getText());
+        if (!scannedInvite) {
+          setScannerError(copy.invalidInviteViewer);
+          return;
+        }
+        activeControls.stop();
+        controls = activeControls;
+        scannerControlsRef.current = null;
+        setScannerError("");
+        setViewerError("");
+        setPin("");
+        setScannedInviteId(scannedInvite);
+        setScanOpen(false);
+      }).then((startedControls) => {
+        if (!startedControls) return;
+        if (cancelled) startedControls.stop();
+        else {
+          controls = startedControls;
+          scannerControlsRef.current = startedControls;
+        }
+      });
+    }).catch(() => {
+      if (!cancelled) {
+        setScanOpen(false);
+        setScannerError(copy.scanUnavailable);
+      }
+    });
+    return () => {
+      cancelled = true;
+      controls?.stop();
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+    };
+  }, [scanOpen, inviteValid, pairingState, copy.invalidInviteViewer, copy.scanUnavailable]);
+
+  useEffect(() => {
+    if (queryInviteId || pairingState === "paired") return;
     let cancelled = false;
     void fetch("/api/viewer-session", {
       headers: { Accept: "application/json" },
@@ -848,7 +926,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     return () => {
       cancelled = true;
     };
-  }, [inviteId, pairingState]);
+  }, [queryInviteId, pairingState]);
 
   useEffect(() => {
     if (pairingState !== "paired") return;
@@ -929,10 +1007,25 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     }
   };
 
+  const usePairingLink = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const foundInvite = inviteIdFromPairingText(pairingLink);
+    if (!foundInvite) {
+      setScannerError(copy.invalidInviteViewer);
+      return;
+    }
+    scannerControlsRef.current?.stop();
+    setScanOpen(false);
+    setScannerError("");
+    setViewerError("");
+    setPin("");
+    setScannedInviteId(foundInvite);
+  };
+
   const statusText = pairingState === "paired" ? liveState === "live" ? "Live" : liveState === "disconnected" ? "Disconnected" : "Connecting" : copy.waitingPair;
   const statusClass = pairingState === "paired"
     ? "status-preview"
-    : viewerError
+    : viewerError || scannerError
       ? "status-error"
       : "status-idle";
 
@@ -988,7 +1081,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 </button>
               </form>
             ) : (
-              <>
+              <div className="viewer-scan-panel">
                 <DeviceIcon kind="viewer" large />
                 <h2>{copy.pairingTitle}</h2>
                 <ol className="step-list">
@@ -996,9 +1089,25 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                   <li><span>2</span> {copy.pairingStep2}</li>
                   <li><span>3</span> {copy.pairingStep3}</li>
                 </ol>
-              </>
+                {scanOpen ? (
+                  <div className="qr-scanner">
+                    <p>{copy.scanHelp}</p>
+                    <video ref={scannerVideoRef} autoPlay muted playsInline aria-label={copy.scanQr} />
+                    <button className="regenerate-button" type="button" onClick={() => setScanOpen(false)}>{copy.stopScan}</button>
+                  </div>
+                ) : (
+                  <button className="primary-button scan-button" type="button" onClick={() => { setScannerError(""); setScanOpen(true); }}>{copy.scanQr}</button>
+                )}
+                <form className="pairing-link-form" onSubmit={usePairingLink}>
+                  <label>
+                    <span>{copy.pairingLinkLabel}</span>
+                    <input aria-label={copy.pairingLinkLabel} autoComplete="url" inputMode="url" placeholder={copy.pairingLinkPlaceholder} value={pairingLink} onChange={(event) => setPairingLink(event.currentTarget.value)} />
+                  </label>
+                  <button className="regenerate-button" type="submit">{copy.usePairingLink}</button>
+                </form>
+              </div>
             )}
-            {viewerError ? <div className="camera-error" role="alert"><strong>!</strong><p>{viewerError}</p></div> : null}
+            {viewerError || scannerError ? <div className="camera-error" role="alert"><strong>!</strong><p>{viewerError || scannerError}</p></div> : null}
           </section>
         </section>
       </div>

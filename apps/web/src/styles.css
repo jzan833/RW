@@ -766,7 +766,8 @@ h1 {
 .pairing-console-expired { border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); }
 
 .viewer-pairing-form,
-.viewer-paired {
+.viewer-paired,
+.viewer-scan-panel {
   display: grid;
   margin-top: 34px;
 }
@@ -820,6 +821,15 @@ h1 {
   text-align: center;
   width: 100%;
 }
+
+.pairing-link-form { border-top: 1px solid var(--line); display: grid; gap: 10px; margin-top: 22px; padding-top: 18px; }
+.pairing-link-form label { display: grid; gap: 8px; }
+.pairing-link-form label span { color: var(--accent); font-size: 0.72rem; font-weight: 750; }
+.pairing-link-form input { background: var(--surface-strong); border: 1px solid var(--line-bright); border-radius: 10px; color: var(--text); font-size: 0.9rem; min-height: 48px; padding: 10px 12px; width: 100%; }
+.scan-button { margin-top: 22px; width: 100%; }
+.qr-scanner { display: grid; gap: 12px; margin-top: 22px; }
+.qr-scanner > p { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0; }
+.qr-scanner video { aspect-ratio: 4 / 3; background: #050b12; border: 1px solid var(--line-bright); border-radius: 14px; object-fit: cover; width: 100%; }
 
 .viewer-pairing-form input::placeholder {
   color: var(--muted);
