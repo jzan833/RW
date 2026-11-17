@@ -28,3 +28,10 @@ yarn-debug.log*
 *.sqlite3-*
 
 .DS_Store
+docs/
+deploy/
+
+# Local project planning and coding-agent instructions
+AGENTS.md
+.agents/
+.codex/

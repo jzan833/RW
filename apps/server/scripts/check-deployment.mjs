@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-const require = createRequire(new URL("../apps/server/package.json", import.meta.url));
+const require = createRequire(new URL("../package.json", import.meta.url));
 const { io } = require("socket.io-client");
 const args = process.argv.slice(2);
 const local = args.includes("--local");

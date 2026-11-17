@@ -7,7 +7,7 @@
     "apps/server"
   ],
   "scripts": {
-    "check:deploy": "node deploy/check-deployment.mjs",
+    "check:deploy": "node apps/server/scripts/check-deployment.mjs",
     "dev": "concurrently --kill-others-on-fail --names server,web --prefix name \"npm run dev:server\" \"npm run dev:web\"",
     "dev:web": "npm run dev -w @rw/web",
     "dev:server": "npm run dev -w @rw/server",
