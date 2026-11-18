@@ -494,8 +494,18 @@ h1 {
 .camera-audio-heading p { color: var(--muted); font-size: 0.78rem; line-height: 1.5; margin: 4px 0 0; }
 .camera-audio-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .camera-audio-grid .media-control-card { grid-column: auto; margin: 0; }
+.camera-audio-grid .talk-status-card,
+.camera-audio-grid .alarm-state-card { grid-column: 1 / -1; }
 .media-control-card strong { font-size: 0.84rem; }
 .media-control-card .regenerate-button { margin: 0; width: auto; }
+.room-audio-toggle { min-height: 46px; min-width: 148px; }
+.room-audio-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--safe) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--safe) 55%, var(--line));
+  color: var(--safe);
+}
+.room-audio-toggle:focus-visible,
+.hold-to-talk:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .audio-state { color: var(--muted); font-size: 0.78rem; margin: 5px 0 0; }
 .audio-state-on { color: var(--safe); font-weight: 750; }
 .talk-status-card { justify-content: flex-start; }

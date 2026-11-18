@@ -48,6 +48,7 @@ const originalPeerConnection = Object.getOwnPropertyDescriptor(window, "RTCPeerC
 
 const installAudioContext = (resume: () => Promise<void> = async () => undefined) => {
   const oscillators: Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; onended?: (() => void) | null }> = [];
+  const mediaSources: Array<{ stream: MediaStream; connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
   class FakeAudioContext {
     state: AudioContextState = "suspended";
     currentTime = 0;
@@ -75,12 +76,14 @@ const installAudioContext = (resume: () => Promise<void> = async () => undefined
         connect: vi.fn()
       } as unknown as GainNode;
     }
-    createMediaStreamSource() {
-      return { connect: vi.fn(), disconnect: vi.fn() } as unknown as MediaStreamAudioSourceNode;
+    createMediaStreamSource(stream: MediaStream) {
+      const source = { stream, connect: vi.fn(), disconnect: vi.fn() };
+      mediaSources.push(source);
+      return source as unknown as MediaStreamAudioSourceNode;
     }
   }
   Object.defineProperty(window, "AudioContext", { configurable: true, value: FakeAudioContext });
-  return { oscillators };
+  return { oscillators, mediaSources };
 };
 
 const cameraDevice = (deviceId: string, label: string) => ({
@@ -296,6 +299,18 @@ describe("T05 camera preview", () => {
     expect(screen.queryByText(/monitoring active/i)).toBeNull();
   });
 
+  it("shows a camera-not-found message and retry action when no camera is available", async () => {
+    installMediaDevices(vi.fn().mockRejectedValue(new DOMException("no camera", "NotFoundError")));
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("No camera was found.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByText(/monitoring active/i)).toBeNull();
+  });
+
   it("shows a hardware recovery message if an active camera track ends", async () => {
     const { stream, videoTrack } = makeStream();
     installMediaDevices(vi.fn().mockResolvedValue(stream));
@@ -354,20 +369,21 @@ describe("T15 opt-in camera microphone", () => {
     await screen.findByText("Local preview on");
     expect(getUserMedia).toHaveBeenCalledOnce();
     expect(getUserMedia).toHaveBeenCalledWith({ audio: false, video: true });
-    expect(screen.queryByRole("button", { name: "Enable room audio" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Turn room audio on" })).toBeNull();
 
     fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
-    const enableAudio = await screen.findByRole("button", { name: "Enable room audio" });
-    expect(screen.getByRole("status", { name: "Microphone Off" }).textContent).toBe("Microphone Off");
+    const enableAudio = await screen.findByRole("button", { name: "Turn room audio on" });
+    expect(screen.getByRole("status", { name: "Room audio Off" }).textContent).toBe("Room audio Off");
+    expect(enableAudio.getAttribute("aria-pressed")).toBe("false");
     expect(getUserMedia).toHaveBeenCalledOnce();
 
     fireEvent.click(enableAudio);
-    await waitFor(() => expect(screen.getByRole("status", { name: "Microphone On" }).textContent).toBe("Microphone On"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Room audio On" }).textContent).toBe("Room audio On"));
     expect(getUserMedia).toHaveBeenLastCalledWith({ audio: true, video: false });
-    expect(screen.getByRole("button", { name: "Turn room audio off" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Turn room audio off" }).getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Turn room audio off" }));
-    await waitFor(() => expect(screen.getByRole("status", { name: "Microphone Off" }).textContent).toBe("Microphone Off"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Room audio Off" }).textContent).toBe("Room audio Off"));
     expect(microphoneTrack.stop).toHaveBeenCalledOnce();
   });
 
@@ -387,10 +403,10 @@ describe("T15 opt-in camera microphone", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
     await screen.findByText("Local preview on");
     fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Enable room audio" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Turn room audio on" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("Microphone access failed.");
-    expect(screen.getByRole("status", { name: "Microphone Off" }).textContent).toBe("Microphone Off");
+    expect(screen.getByRole("status", { name: "Room audio Off" }).textContent).toBe("Room audio Off");
   });
 });
 
@@ -490,12 +506,75 @@ describe("T18 camera local alarm", () => {
       status: "failed"
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop alarm" }));
+    expect(screen.queryByRole("button", { name: "Stop alarm" })).toBeNull();
+    expect(screen.getByText("Alarm playing")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Test speaker again" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Stop Monitoring" }));
     expect(screen.queryByText("Alarm playing")).toBeNull();
     expect(socketHarness.sockets[0].emit).toHaveBeenLastCalledWith("rw:alarm-result", {
       requestId: "camera-alarm-1",
       status: "ended"
     });
+  });
+});
+
+describe("T17 camera receives viewer talk audio", () => {
+  it("routes the incoming viewer microphone track to the camera speaker", async () => {
+    const peers: Array<{ ontrack: ((event: RTCTrackEvent) => void) | null }> = [];
+    const receivedTrack = { kind: "audio" } as MediaStreamTrack;
+    class FakeMediaStream {
+      constructor(private readonly tracks: MediaStreamTrack[]) {}
+      getTracks() { return this.tracks; }
+    }
+    class FakePeerConnection {
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      addTrack = vi.fn();
+      addTransceiver = vi.fn(() => ({ sender: { replaceTrack: vi.fn(async () => undefined) } }));
+      createOffer = vi.fn(async () => ({ type: "offer", sdp: "camera-offer" } as RTCSessionDescriptionInit));
+      createAnswer = vi.fn(async () => ({ type: "answer", sdp: "camera-answer" } as RTCSessionDescriptionInit));
+      setLocalDescription = vi.fn(async () => undefined);
+      setRemoteDescription = vi.fn(async () => undefined);
+      addIceCandidate = vi.fn(async () => undefined);
+      close = vi.fn();
+      constructor() { peers.push(this); }
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    vi.stubGlobal("MediaStream", FakeMediaStream);
+    const audio = installAudioContext();
+    const camera = makeStream();
+    Object.assign(camera.videoTrack, { readyState: "live" });
+    installMediaDevices(vi.fn().mockResolvedValue(camera.stream));
+    const payload = sessionPayload();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (String(input).startsWith("/api/turn-credentials/")) return jsonResponse({ iceServers: [] });
+      return jsonResponse(payload, 201);
+    }));
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    await screen.findByText("Local preview on");
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+    await screen.findByRole("img", { name: "Viewer pairing QR code" });
+    Object.assign(socketHarness.sockets[0], { connected: true });
+    act(() => socketHarness.sockets[0].trigger("rw:peer-joined", { role: "viewer" }));
+    await waitFor(() => expect(peers).toHaveLength(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Enable speaker" }));
+    await waitFor(() => expect(audio.oscillators).toHaveLength(1));
+    act(() => audio.oscillators[0].onended?.());
+    await screen.findByRole("status", { name: "Speaker Ready" });
+
+    act(() => peers[0].ontrack?.({
+      track: receivedTrack,
+      streams: []
+    } as unknown as RTCTrackEvent));
+
+    expect(audio.mediaSources).toHaveLength(1);
+    expect(audio.mediaSources[0].stream.getTracks()).toEqual([receivedTrack]);
+    expect(audio.mediaSources[0].connect).toHaveBeenCalledOnce();
   });
 });
 
@@ -539,6 +618,7 @@ describe("T17 viewer hold-to-talk", () => {
     } as unknown as MediaStream;
     const getUserMedia = vi.fn()
       .mockResolvedValueOnce(microphoneStream)
+      .mockRejectedValueOnce(new DOMException("Microphone permission denied", "NotAllowedError"))
       .mockResolvedValueOnce(stopViewStream);
     installMediaDevices(getUserMedia);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -581,6 +661,10 @@ describe("T17 viewer hold-to-talk", () => {
     expect(socketHarness.sockets[0].emit).toHaveBeenLastCalledWith("rw:talk-status", { talking: false });
 
     fireEvent.pointerDown(readyButton, { pointerId: 8 });
+    expect((await screen.findByRole("alert")).textContent).toContain("Microphone access failed.");
+    fireEvent.pointerUp(readyButton, { pointerId: 8 });
+
+    fireEvent.pointerDown(readyButton, { pointerId: 9 });
     expect(await screen.findByRole("button", { name: "Talking — release to stop" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop Viewing" }));
     await waitFor(() => expect(stopViewTrack.stop).toHaveBeenCalledOnce());
@@ -650,10 +734,82 @@ describe("T22 connection startup", () => {
     expect(iceRequest?.[1]?.headers).toEqual({ Authorization: `Bearer ${payload.cameraToken}` });
     expect(socketHarness.sockets[0].handlers.has("rw:peer-joined")).toBe(true);
   });
+
+  it("shows a disconnected state and retry action when the camera connection drops", async () => {
+    class FakePeerConnection {
+      connectionState = "new";
+      ontrack: ((event: unknown) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: (() => void) | null = null;
+      close = vi.fn();
+      getTransceivers() { return []; }
+      getStats = vi.fn(async () => new Map());
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/viewer-session") return jsonResponse({ status: "paired" });
+      if (String(input) === "/api/viewer-session/connection") return jsonResponse({ sessionId: "s".repeat(43), iceServers: [] });
+      return new Response(null, { status: 404 });
+    }));
+    window.history.replaceState({}, "", "/viewer");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Viewer paired" });
+    await waitFor(() => expect(socketHarness.sockets).toHaveLength(1));
+    act(() => socketHarness.sockets[0].trigger("rw:peer-left", { role: "camera" }));
+
+    expect(screen.getByText("Connection unavailable. Retry to reconnect without pairing again.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry connection" })).toBeTruthy();
+  });
+
+  it("shows a specific 20-second startup timeout and offers retry without pairing again", async () => {
+    const startupTimeouts: Array<() => void> = [];
+    const originalSetTimeout = window.setTimeout;
+    vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 20_000 && typeof handler === "function") {
+        startupTimeouts.push(() => (handler as () => void)());
+        return 2_147_483_647;
+      }
+      return originalSetTimeout.call(window, handler as () => void, timeout);
+    }) as typeof window.setTimeout);
+    class FakePeerConnection {
+      connectionState = "new";
+      ontrack: ((event: unknown) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: (() => void) | null = null;
+      close = vi.fn();
+      constructor() { peers.push(this); }
+      getTransceivers() { return []; }
+      getStats = vi.fn(async () => new Map());
+    }
+    const peers: FakePeerConnection[] = [];
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/viewer-session") return jsonResponse({ status: "paired" });
+      if (url === "/api/viewer-session/connection") return jsonResponse({ sessionId: "s".repeat(43), iceServers: [] });
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/viewer");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Viewer paired" });
+    await waitFor(() => expect(startupTimeouts).toHaveLength(1));
+    act(() => startupTimeouts[0]());
+
+    expect(screen.getByText("Video did not start within 20 seconds. Check the connection, then retry.")).toBeTruthy();
+    const retryButton = screen.getByRole("button", { name: "Retry connection" });
+    expect(retryButton).toBeTruthy();
+    fireEvent.click(retryButton);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/viewer-session/connection")).toHaveLength(2));
+    expect(screen.getByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    expect(peers[0].close).toHaveBeenCalledOnce();
+  });
 });
 
 describe("T18 viewer sound alarm", () => {
-  it("reports alarm playback only after camera acknowledgement and allows either side to stop", async () => {
+  it("reports alarm playback only after camera acknowledgement and lets the viewer stop it", async () => {
     class FakePeerConnection {
       connectionState = "new";
       ontrack: ((event: unknown) => void) | null = null;

@@ -76,12 +76,12 @@ const messages = {
     oneViewer: "1 viewer connected",
     roomAudio: "Room audio",
     cameraAudioTitle: "Audio controls",
-    cameraAudioHelp: "Microphone starts only when you turn room audio on. Speaker is checked on this camera device.",
+    cameraAudioHelp: "One switch controls the room microphone. Enable this device's speaker to hear viewer talk and alarms.",
     viewerAudioHelp: "Listen to room audio, hold to talk back, or play an alarm.",
     audioPlaybackReady: "Audio playback ready",
-    microphoneOff: "Microphone Off",
-    microphoneOn: "Microphone On",
-    enableMicrophone: "Enable room audio",
+    microphoneOff: "Room audio Off",
+    microphoneOn: "Room audio On",
+    enableMicrophone: "Turn room audio on",
     disableMicrophone: "Turn room audio off",
     microphoneStarting: "Enabling microphone…",
     microphoneError: "Microphone access failed. Allow microphone access, then try again.",
@@ -143,6 +143,7 @@ const messages = {
     viewerPaired: "Viewer paired",
     viewerPairedHelp: "This browser is authorized. Reconnect if the live picture stops.",
     monitoringEnded: "Monitoring ended",
+    connectionTimeout: "Video did not start within 20 seconds. Check the connection, then retry.",
     retryConnection: "Retry connection",
     pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
     pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
@@ -206,11 +207,11 @@ const messages = {
     oneViewer: "Viewer ၁ ဦး ချိတ်ဆက်ထားသည်",
     roomAudio: "အခန်းအသံ",
     cameraAudioTitle: "အသံထိန်းချုပ်မှုများ",
-    cameraAudioHelp: "အခန်းအသံကို ဖွင့်မှသာ Microphone စတင်ပါမယ်။ Speaker ကို ဒီ Camera device မှာ စစ်ဆေးပါ။",
+    cameraAudioHelp: "ခလုတ်တစ်ခုတည်းက အခန်းအသံ Microphone ကို ထိန်းချုပ်ပါတယ်။ Viewer စကားနဲ့ Alarm ကြားဖို့ ဒီ device ရဲ့ Speaker ကို ဖွင့်ပါ။",
     viewerAudioHelp: "အခန်းအသံနားထောင်ပါ၊ ဖိထားပြီး ပြန်ပြောပါ သို့မဟုတ် Alarm မြည်စေပါ။",
     audioPlaybackReady: "အသံဖွင့်ရန် အဆင်သင့်ဖြစ်သည်",
-    microphoneOff: "Microphone ပိတ်ထားသည်",
-    microphoneOn: "Microphone ဖွင့်ထားသည်",
+    microphoneOff: "အခန်းအသံ ပိတ်ထားသည်",
+    microphoneOn: "အခန်းအသံ ဖွင့်ထားသည်",
     enableMicrophone: "အခန်းအသံ ဖွင့်မယ်",
     disableMicrophone: "အခန်းအသံ ပိတ်မယ်",
     microphoneStarting: "Microphone ဖွင့်နေသည်…",
@@ -273,6 +274,7 @@ const messages = {
     viewerPaired: "Viewer Pair လုပ်ပြီးပြီ",
     viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live ပုံရိပ်ရပ်သွားလျှင် ပြန်ချိတ်ဆက်နိုင်ပါတယ်။",
     monitoringEnded: "Monitoring ရပ်တန့်သွားသည်",
+    connectionTimeout: "စက္ကန့် ၂၀ အတွင်း Video မစတင်နိုင်ပါ။ အင်တာနက်ကိုစစ်ပြီး ပြန်ချိတ်ပါ။",
     retryConnection: "ပြန်ချိတ်ဆက်ရန်",
     pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
     pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
@@ -656,6 +658,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   };
 
   const enableSpeaker = async () => {
+    if (alarmRequestIdRef.current) return;
     const operation = speakerOperationRef.current + 1;
     speakerOperationRef.current = operation;
     stopAlarm();
@@ -1197,18 +1200,18 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                   <p>{copy.cameraAudioHelp}</p>
                 </div>
                 <div className="camera-audio-grid">
-                  <div className="media-control-card">
+                  <div className="media-control-card room-audio-control-card">
                     <div>
                       <strong>{copy.roomAudio}</strong>
                       <p className={microphoneOn ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={microphoneOn ? copy.microphoneOn : copy.microphoneOff}>
                         {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.microphoneOn : copy.microphoneOff}
                       </p>
                     </div>
-                    <button className="regenerate-button" type="button" disabled={microphoneRequesting} onClick={() => void toggleMicrophone()}>
+                    <button className="regenerate-button room-audio-toggle" type="button" aria-pressed={microphoneOn} disabled={microphoneRequesting} onClick={() => void toggleMicrophone()}>
                       {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.disableMicrophone : copy.enableMicrophone}
                     </button>
                   </div>
-                  <div className="media-control-card">
+                  <div className="media-control-card speaker-control-card">
                     <div>
                       <strong>Speaker</strong>
                       <p className={speakerState === "ready" ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}>
@@ -1216,7 +1219,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                       </p>
                       <p className="audio-state">{copy.speakerHelp}</p>
                     </div>
-                    <button className="regenerate-button" type="button" disabled={speakerState === "checking"} onClick={() => void enableSpeaker()}>
+                    <button className="regenerate-button" type="button" disabled={speakerState === "checking" || alarmPlaying} onClick={() => void enableSpeaker()}>
                       {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.testSpeakerAgain : copy.enableSpeaker}
                     </button>
                   </div>
@@ -1229,7 +1232,6 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                   {alarmPlaying ? (
                     <div className="media-control-card alarm-state-card">
                       <p className="audio-state audio-state-on" role="status">{copy.alarmPlaying}</p>
-                      <button className="regenerate-button stop-alarm-button" type="button" onClick={stopAlarm}>{copy.stopAlarm}</button>
                     </div>
                   ) : null}
                 </div>
@@ -1358,6 +1360,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
   const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
   const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected" | "ended">("connecting");
+  const [connectionTimedOut, setConnectionTimedOut] = useState(false);
   const [speakerReady, setSpeakerReady] = useState(false);
   const [talkState, setTalkState] = useState<"idle" | "requesting" | "talking" | "error">("idle");
   const [talkError, setTalkError] = useState("");
@@ -1605,7 +1608,9 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     let peer: RTCPeerConnection | null = null;
     let routeTimer: number | undefined;
     startupTimeoutRef.current = window.setTimeout(() => {
-      setLiveState((state) => state === "live" || state === "ended" ? state : "disconnected");
+      if (liveStateRef.current === "live" || liveStateRef.current === "ended") return;
+      setConnectionTimedOut(true);
+      setLiveState("disconnected");
     }, 20_000);
     void (async () => {
       try {
@@ -1883,15 +1888,17 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                   if (sessionEndedRef.current) return;
                   if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
                   startupTimeoutRef.current = undefined;
+                  setConnectionTimedOut(false);
                   setLiveState("live");
                 }} onStalled={() => {
                   if (sessionEndedRef.current) return;
                   if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+                  setConnectionTimedOut(false);
                   setLiveState("disconnected");
                 }} />
                 <audio ref={liveAudioRef} autoPlay playsInline className="visually-hidden" />
                 <h2>{copy.viewerPaired}</h2>
-                <p>{liveState === "ended" ? copy.monitoringEnded : liveState === "disconnected" ? "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
+                <p>{liveState === "ended" ? copy.monitoringEnded : liveState === "disconnected" ? connectionTimedOut ? copy.connectionTimeout : "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
                 {liveState === "live" ? (
                   <section className="viewer-audio-console" aria-label={copy.roomAudio}>
                     <div className="viewer-audio-heading">
@@ -1964,6 +1971,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 ) : null}
                 <button className="regenerate-button stop-viewing-button" type="button" onClick={onHome}>{copy.stopViewing}</button>
                 {liveState === "disconnected" ? <button className="primary-button viewer-retry-button" type="button" onClick={() => {
+                  setConnectionTimedOut(false);
                   setLiveState("connecting");
                   setConnectionRoute("unknown");
                   setConnectionAttempt((attempt) => attempt + 1);
