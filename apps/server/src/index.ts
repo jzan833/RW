@@ -70,6 +70,29 @@ export function createRwServer({
     response.setHeader("Permissions-Policy", "camera=(self), microphone=(self)");
     next();
   });
+  app.use((request, response, next) => {
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+      next();
+      return;
+    }
+    const origin = request.get("origin");
+    if (!origin) {
+      next();
+      return;
+    }
+    try {
+      const expectedProtocol = request.get("x-forwarded-proto")?.split(",")[0]?.trim() || request.protocol;
+      const expectedOrigin = `${expectedProtocol}://${request.get("host")}`;
+      if (new URL(origin).origin !== expectedOrigin) {
+        response.status(403).json({ error: "Cross-origin request rejected" });
+        return;
+      }
+    } catch {
+      response.status(403).json({ error: "Cross-origin request rejected" });
+      return;
+    }
+    next();
+  });
   app.get("/api/health", (_request, response) => {
     response.json({ status: "ok" });
   });

@@ -57,6 +57,17 @@ describe("RW server setup", () => {
     expect(response.headers.get("x-powered-by")).toBeNull();
   });
 
+  it("rejects cross-origin state-changing requests", async () => {
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/monitoring-sessions`, {
+      method: "POST",
+      headers: { Origin: "https://attacker.example" }
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Cross-origin request rejected" });
+  });
+
   it("does not turn an unknown API endpoint into an HTML success", async () => {
     const address = rwServer.httpServer.address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${address.port}/api/not-found`);
