@@ -33,7 +33,7 @@ const socketHarness = vi.hoisted(() => {
 
 vi.mock("socket.io-client", () => ({ io: socketHarness.io }));
 
-import App from "./App";
+import App, { connectionRouteFromStats } from "./App";
 
 type FakeTrack = {
   stop: ReturnType<typeof vi.fn>;
@@ -45,6 +45,27 @@ const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDe
 const originalPlay = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "play");
 const originalAudioContext = Object.getOwnPropertyDescriptor(window, "AudioContext");
 const originalPeerConnection = Object.getOwnPropertyDescriptor(window, "RTCPeerConnection");
+
+describe("T14 selected ICE route", () => {
+  it("reads the selected relay candidate through the transport stats entry", () => {
+    const stats = new Map([
+      ["transport", { id: "transport", type: "transport", timestamp: 1, selectedCandidatePairId: "pair" }],
+      ["pair", { id: "pair", type: "candidate-pair", timestamp: 1, localCandidateId: "local" }],
+      ["local", { id: "local", type: "local-candidate", timestamp: 1, candidateType: "relay" }]
+    ]) as unknown as RTCStatsReport;
+
+    expect(connectionRouteFromStats(stats)).toBe("relay");
+  });
+
+  it("keeps the nominated candidate-pair fallback for older stats implementations", () => {
+    const stats = new Map([
+      ["pair", { id: "pair", type: "candidate-pair", timestamp: 1, nominated: true, state: "succeeded", localCandidateId: "local" }],
+      ["local", { id: "local", type: "local-candidate", timestamp: 1, candidateType: "host" }]
+    ]) as unknown as RTCStatsReport;
+
+    expect(connectionRouteFromStats(stats)).toBe("direct");
+  });
+});
 
 const installAudioContext = (resume: () => Promise<void> = async () => undefined) => {
   const oscillators: Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; onended?: (() => void) | null }> = [];

@@ -10,6 +10,38 @@ type Theme = "dark" | "light";
 type CameraState = "idle" | "requesting" | "preview" | "error";
 type PairingState = "idle" | "creating" | "ready" | "regenerating";
 type ViewerPairingState = "idle" | "submitting" | "paired";
+type RouteStatsEntry = RTCStats & {
+  candidateType?: string;
+  localCandidateId?: string;
+  nominated?: boolean;
+  selected?: boolean;
+  selectedCandidatePairId?: string;
+  state?: string;
+};
+
+export function connectionRouteFromStats(stats: RTCStatsReport): "relay" | "direct" | undefined {
+  let selectedPair: RouteStatsEntry | undefined;
+  for (const value of stats.values()) {
+    const item = value as RouteStatsEntry;
+    if (item.type === "transport" && typeof item.selectedCandidatePairId === "string") {
+      selectedPair = stats.get(item.selectedCandidatePairId) as RouteStatsEntry | undefined;
+      if (selectedPair) break;
+    }
+  }
+  if (!selectedPair) {
+    for (const value of stats.values()) {
+      const item = value as RouteStatsEntry;
+      if (item.type === "candidate-pair" && (item.selected === true || (item.nominated === true && item.state === "succeeded"))) {
+        selectedPair = item;
+        break;
+      }
+    }
+  }
+  if (!selectedPair || typeof selectedPair.localCandidateId !== "string") return undefined;
+  const localCandidate = stats.get(selectedPair.localCandidateId) as RouteStatsEntry | undefined;
+  if (typeof localCandidate?.candidateType !== "string") return undefined;
+  return localCandidate.candidateType === "relay" ? "relay" : "direct";
+}
 
 type CameraSession = {
   sessionId: string;
@@ -1780,11 +1812,8 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
           if (!peer || peer.connectionState !== "connected") return;
           const stats = await peer.getStats().catch(() => null);
           if (!stats) return;
-          for (const item of stats.values()) {
-            if (item.type !== "candidate-pair" || !item.selected) continue;
-            const local = stats.get(item.localCandidateId);
-            if (local?.candidateType) setConnectionRoute(local.candidateType === "relay" ? "relay" : "direct");
-          }
+          const route = connectionRouteFromStats(stats);
+          if (route) setConnectionRoute(route);
         }, 2_000);
       } catch (error) {
         if (!cancelled) setLiveState(error instanceof Error && error.message === "Viewer session ended" ? "ended" : "disconnected");
