@@ -156,6 +156,7 @@ describe("T05 camera preview", () => {
     await waitFor(() => expect(screen.getByText("Local preview on")).toBeTruthy());
     expect(getUserMedia).toHaveBeenCalledWith({ audio: false, video: true });
     expect(screen.getByLabelText("Local camera preview").getAttribute("autoplay")).not.toBeNull();
+    expect(document.querySelector(".camera-monitoring-shell")).toBeTruthy();
     expect(document.querySelector(".camera-preview-layout")).toBeTruthy();
     expect(document.querySelector(".preview-frame")?.getAttribute("style")).toContain("aspect-ratio: 1280 / 720");
     expect(screen.getByText("1280 × 720")).toBeTruthy();
@@ -394,6 +395,8 @@ describe("T08/T10 viewer pairing and re-entry UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pair viewer" }));
 
     expect(await screen.findByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    expect(document.querySelector(".viewer-live-shell")).toBeTruthy();
+    expect(document.querySelector(".viewer-live-surface")).toBeTruthy();
     expect(document.querySelector(".viewer-live-layout")).toBeTruthy();
     expect(window.location.pathname).toBe("/viewer");
     expect(window.location.search).toBe("");

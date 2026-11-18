@@ -177,11 +177,16 @@ export class MonitoringSessionStore {
       : this.validateViewer(sessionId, token);
   }
 
-  claimViewerSocket(sessionId: string, socketId: string): boolean {
+  replaceViewerSocket(sessionId: string, socketId: string): { previousSocketId?: string } | undefined {
     const session = this.#sessions.get(sessionId);
-    if (!session || session.viewerSocketId) return false;
+    if (!session) return undefined;
+    const previousSocketId = session.viewerSocketId;
     session.viewerSocketId = socketId;
-    return true;
+    return { previousSocketId };
+  }
+
+  hasViewerSocket(sessionId: string): boolean {
+    return Boolean(this.#sessions.get(sessionId)?.viewerSocketId);
   }
 
   releaseViewerSocket(sessionId: string, socketId: string): boolean {

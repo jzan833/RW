@@ -1,21 +1,21 @@
 :root {
   color-scheme: dark;
-  --bg: #050b14;
-  --bg-glow: rgba(31, 113, 189, 0.25);
-  --surface: rgba(10, 22, 38, 0.88);
-  --surface-strong: #101f33;
-  --surface-soft: rgba(24, 48, 75, 0.58);
-  --text: #edf5ff;
-  --muted: #9eafc5;
-  --subtle: #bed0e4;
-  --line: #28445f;
-  --line-bright: #4b81af;
-  --accent: #55d6ff;
-  --accent-strong: #009cca;
-  --accent-ink: #00141d;
-  --safe: #67dfbd;
-  --warn: #e2ba6b;
-  --danger: #ff7c7c;
+  --bg: #07111e;
+  --bg-glow: rgba(43, 160, 190, 0.2);
+  --surface: rgba(11, 24, 40, 0.94);
+  --surface-strong: #11243a;
+  --surface-soft: rgba(35, 63, 88, 0.72);
+  --text: #f2f7fc;
+  --muted: #a7b9ca;
+  --subtle: #c8d5e2;
+  --line: #2c4860;
+  --line-bright: #527b98;
+  --accent: #72dce5;
+  --accent-strong: #20aeb9;
+  --accent-ink: #06171b;
+  --safe: #70dfb8;
+  --warn: #f0c775;
+  --danger: #ff858c;
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
   color: var(--text);
   background: var(--bg);
@@ -25,22 +25,22 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #edf4f8;
-  --bg-glow: rgba(35, 137, 186, 0.17);
-  --surface: rgba(255, 255, 255, 0.9);
+  --bg: #edf4f6;
+  --bg-glow: rgba(26, 143, 158, 0.14);
+  --surface: rgba(255, 255, 255, 0.96);
   --surface-strong: #ffffff;
   --surface-soft: rgba(218, 235, 244, 0.75);
   --text: #102333;
   --muted: #596d7e;
   --subtle: #40596d;
-  --line: #bfd2de;
-  --line-bright: #61a0bf;
-  --accent: #007ea9;
-  --accent-strong: #00a4d2;
+  --line: #c4d4dc;
+  --line-bright: #6e9eac;
+  --accent: #006b78;
+  --accent-strong: #1497a1;
   --accent-ink: #ffffff;
-  --safe: #118466;
-  --warn: #9a6500;
-  --danger: #bd3434;
+  --safe: #137457;
+  --warn: #8a5900;
+  --danger: #b83243;
   --shadow: 0 24px 70px rgba(37, 72, 92, 0.16);
 }
 
@@ -89,6 +89,18 @@ button:focus-visible, select:focus-visible {
   position: relative;
   width: 100%;
   z-index: 1;
+}
+.app-surface.camera-monitoring-surface,
+.app-surface.viewer-live-surface {
+  gap: clamp(16px, 2.4vh, 28px);
+  max-width: 1680px;
+}
+.page-shell.camera-monitoring-shell,
+.page-shell.viewer-live-shell {
+  align-items: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: clamp(12px, 2.2vw, 32px);
 }
 
 .app-surface::before {
@@ -377,6 +389,8 @@ h1 {
 }
 .status-dot { background: var(--warn); border-radius: 50%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 12%, transparent); height: 8px; width: 8px; }
 .status-preview .status-dot { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+.status-live .status-dot { background: var(--safe); box-shadow: 0 0 12px var(--safe); }
+.status-live p { color: var(--safe); }
 .status-error .status-dot { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 12%, transparent); }
 .status-requesting .status-dot { animation: pulse 1s infinite; background: var(--accent); }
 
@@ -391,7 +405,28 @@ h1 {
   grid-template-columns: minmax(280px, 0.76fr) minmax(440px, 1.24fr);
 }
 .camera-preview-layout { grid-template-columns: minmax(0, 1fr); }
-.camera-preview-layout .preview-frame { max-height: min(72dvh, 900px); width: 100%; }
+.camera-layout.camera-preview-layout { gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.camera-preview-layout .camera-copy {
+  align-items: center;
+  column-gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: none;
+  padding: 0;
+  row-gap: 5px;
+}
+.camera-preview-layout .camera-copy > .text-button,
+.camera-preview-layout .camera-copy > .eyebrow,
+.camera-preview-layout .camera-copy > .intro { display: none; }
+.camera-preview-layout .camera-copy h1 { font-size: clamp(1.1rem, 2vw, 1.55rem); grid-column: 1; line-height: 1.2; max-width: none; }
+.camera-preview-layout .camera-readout { border: 0; grid-column: 1; margin: 0; padding: 0; }
+.camera-preview-layout .camera-readout > p[role="status"] { color: var(--muted); margin: 4px 0 0; }
+.camera-preview-layout .device-select { grid-column: 1; margin-top: 2px; max-width: 380px; }
+.camera-preview-layout .camera-actions { grid-column: 2; grid-row: 1 / span 3; margin: 0; }
+.camera-preview-layout .camera-actions .primary-button { min-width: 150px; width: auto; }
+.camera-preview-layout .camera-error { grid-column: 1 / -1; margin: 0; }
+.camera-preview-layout .preview-panel { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
+.camera-preview-layout .preview-frame { margin-inline: auto; max-height: min(92dvh, calc(100dvh - 180px), 1200px); max-width: 100%; width: 100%; }
 .camera-copy { padding-top: 7px; }
 .camera-copy h1 { max-width: 9ch; }
 .camera-readout {
@@ -774,19 +809,33 @@ h1 {
   margin-top: 34px;
 }
 .viewer-live-layout { grid-template-columns: minmax(0, 1fr); }
+.role-layout.viewer-live-layout { align-items: start; gap: 0; grid-template-columns: minmax(0, 1fr); }
 .viewer-live-layout .role-intro { display: none; }
-.viewer-live-layout .viewer-panel { min-height: 0; min-width: 0; width: 100%; }
-.viewer-live-layout .viewer-paired { margin-top: 18px; min-width: 0; }
+.viewer-live-layout .viewer-panel {
+  background: linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--accent) 5%, var(--surface)));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  min-height: 0;
+  min-width: 0;
+  padding: clamp(12px, 1.6vw, 24px);
+  width: 100%;
+}
+.viewer-live-layout .viewer-paired { gap: 12px; margin-top: 14px; min-width: 0; }
+.viewer-stream-live .viewer-paired h2,
+.viewer-stream-live .viewer-paired > p:not([role="status"]) { display: none; }
 .viewer-paired video {
   background: #000;
-  border: 1px solid var(--line-bright);
-  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line-bright));
+  border-radius: 16px;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--bg) 45%, transparent);
   display: block;
   height: auto;
-  max-height: min(78dvh, 900px);
+  max-height: min(92dvh, calc(100dvh - 160px), 1200px);
+  max-width: 100%;
+  margin-inline: auto;
   object-fit: contain;
   width: 100%;
 }
+.viewer-retry-button { justify-self: start; width: auto; }
 
 .viewer-pairing-form .device-icon,
 .viewer-paired .device-icon {
@@ -898,13 +947,19 @@ h1 {
 
 @media (max-width: 700px) {
   .page-shell { align-items: stretch; padding: 18px 15px 30px; }
+  .page-shell.camera-monitoring-shell,
+  .page-shell.viewer-live-shell { padding: 10px; }
   .app-surface { gap: 38px; }
+  .app-surface.camera-monitoring-surface,
+  .app-surface.viewer-live-surface { gap: 14px; }
   .app-header { align-items: flex-start; }
   .header-tools { flex-wrap: wrap; justify-content: flex-end; max-width: 190px; }
   .mode-label { flex-basis: 100%; margin: 0; text-align: right; }
   .mode-grid { grid-template-columns: 1fr; margin-top: 30px; }
   .mode-button { min-height: 124px; padding: 19px; }
   .role-layout { grid-template-columns: 1fr; }
+  .role-layout.viewer-live-layout { gap: 0; }
+  .viewer-live-layout .viewer-panel { padding: 10px; }
   .role-intro h1 { max-width: 12ch; }
   .setup-panel { min-height: 0; }
   .pairing-console-header { align-items: flex-start; flex-direction: column; }
@@ -919,6 +974,19 @@ h1 {
   .header-tools { flex-wrap: nowrap; }
   .language-switch button { padding: 7px; }
   .camera-layout { gap: 24px; }
+  .camera-layout.camera-preview-layout { gap: 10px; }
+  .camera-preview-layout .camera-copy { column-gap: 0; grid-template-columns: minmax(0, 1fr); row-gap: 7px; }
+  .camera-preview-layout .camera-copy h1,
+  .camera-preview-layout .camera-readout,
+  .camera-preview-layout .device-select { grid-column: 1; }
+  .camera-preview-layout .camera-actions {
+    grid-column: 1;
+    grid-row: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .camera-preview-layout .camera-actions .primary-button { font-size: 0.82rem; min-width: 0; padding: 10px 8px; width: 100%; }
+  .camera-preview-layout .device-select { max-width: none; }
   .preview-panel { padding: 0 9px 9px; }
   .tech-telemetry {
     font-size: 0.52rem;

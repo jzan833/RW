@@ -226,14 +226,22 @@ export function createRwServer({
     const sessionId = socket.data.sessionId as string;
     const role = socket.data.role as "camera" | "viewer";
     const room = `session:${sessionId}`;
-    if (role === "viewer" && !sessionStore.claimViewerSocket(sessionId, socket.id)) {
-      socket.emit("rw:error", { code: "viewer_limit" });
-      socket.disconnect(true);
-      return;
+    if (role === "viewer") {
+      const replacement = sessionStore.replaceViewerSocket(sessionId, socket.id);
+      if (!replacement) {
+        socket.emit("rw:error", { code: "viewer_limit" });
+        socket.disconnect(true);
+        return;
+      }
+      if (replacement.previousSocketId) {
+        const previousSocket = io.sockets.sockets.get(replacement.previousSocketId);
+        previousSocket?.emit("rw:viewer-replaced");
+        previousSocket?.disconnect(true);
+      }
     }
     void socket.join(room);
     socket.to(room).emit("rw:peer-joined", { role });
-    io.to(room).emit("rw:viewer-count", { count: role === "viewer" ? 1 : 0 });
+    io.to(room).emit("rw:viewer-count", { count: sessionStore.hasViewerSocket(sessionId) ? 1 : 0 });
 
     socket.on("rw:signal", (message: unknown) => {
       if (!message || typeof message !== "object") return;
@@ -245,9 +253,10 @@ export function createRwServer({
     });
 
     socket.on("disconnect", () => {
-      if (role === "viewer") sessionStore.releaseViewerSocket(sessionId, socket.id);
+      const isActiveViewer = role !== "viewer" || sessionStore.releaseViewerSocket(sessionId, socket.id);
+      if (!isActiveViewer) return;
       socket.to(room).emit("rw:peer-left", { role });
-      io.to(room).emit("rw:viewer-count", { count: 0 });
+      if (role === "viewer") io.to(room).emit("rw:viewer-count", { count: 0 });
     });
   });
 

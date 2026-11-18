@@ -416,6 +416,13 @@ const viewerCookieHeader = (response: Response) => {
   };
 };
 
+function waitForSocketConnect(client: Socket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    client.once("connect", resolve);
+    client.once("connect_error", reject);
+  });
+}
+
 describe("T14 short-lived TURN authorization", () => {
   it("only issues ICE servers to the paired viewer or camera and rejects stopped sessions", async () => {
     const issueTurn = vi.fn().mockResolvedValue([{ urls: "turn:relay.example.test", username: "temporary", credential: "temporary" }]);
@@ -543,5 +550,66 @@ describe("T10 persistent viewer cookie", () => {
       replacement.io.close();
       await new Promise<void>((resolve) => replacement.httpServer.close(() => resolve()));
     }
+  });
+});
+
+describe("T19 viewer socket re-entry", () => {
+  it("replaces a stale socket for the same paired browser and keeps one active viewer", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const cookie = viewerCookieHeader(paired).requestHeader;
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const camera = createClient(origin, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    const cameraConnected = waitForSocketConnect(camera);
+    await cameraConnected;
+    const viewerCounts: number[] = [];
+    const peerLeft = vi.fn();
+    camera.on("rw:viewer-count", (event: { count: number }) => viewerCounts.push(event.count));
+    camera.on("rw:peer-left", peerLeft);
+
+    const firstViewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: cookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(firstViewer);
+    const firstViewerDisconnected = new Promise<void>((resolve) => firstViewer.once("disconnect", () => resolve()));
+
+    const returningViewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: cookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await Promise.all([waitForSocketConnect(returningViewer), firstViewerDisconnected]);
+
+    expect(firstViewer.connected).toBe(false);
+    expect(returningViewer.connected).toBe(true);
+    expect(viewerCounts.at(-1)).toBe(1);
+    expect(peerLeft).not.toHaveBeenCalled();
+
+    camera.disconnect();
+    firstViewer.disconnect();
+    returningViewer.disconnect();
+  });
+
+  it("rejects a new browser that does not have the paired viewer cookie", async () => {
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const unauthorizedViewer = createClient(`http://127.0.0.1:${address.port}`, {
+      auth: { role: "viewer" },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    const connectError = new Promise<Error>((resolve) => unauthorizedViewer.once("connect_error", resolve));
+
+    await expect(connectError).resolves.toBeInstanceOf(Error);
+    expect(unauthorizedViewer.connected).toBe(false);
+    unauthorizedViewer.disconnect();
   });
 });

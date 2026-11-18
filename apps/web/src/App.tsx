@@ -101,7 +101,8 @@ const messages = {
     pairViewer: "Pair viewer",
     pairingViewer: "Pairing securely…",
     viewerPaired: "Viewer paired",
-    viewerPairedHelp: "This browser is authorized. Live connection setup comes next.",
+    viewerPairedHelp: "This browser is authorized. Reconnect if the live picture stops.",
+    retryConnection: "Retry connection",
     pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
     pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
     invalidInviteViewer: "This pairing link is invalid. Scan a new QR code from the camera.",
@@ -189,7 +190,8 @@ const messages = {
     pairViewer: "Viewer ကို Pair လုပ်မယ်",
     pairingViewer: "လုံခြုံစွာ Pair လုပ်နေသည်…",
     viewerPaired: "Viewer Pair လုပ်ပြီးပြီ",
-    viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live connection ကို နောက်အဆင့်မှာချိတ်ပါမယ်။",
+    viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live ပုံရိပ်ရပ်သွားလျှင် ပြန်ချိတ်ဆက်နိုင်ပါတယ်။",
+    retryConnection: "ပြန်ချိတ်ဆက်ရန်",
     pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
     pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
     invalidInviteViewer: "ဒီ pairing link မမှန်ပါ။ Camera မှ QR code အသစ်ကို scan လုပ်ပါ။",
@@ -280,6 +282,12 @@ async function getViewerSessionIdHint(): Promise<string> {
   if (!response.ok) return "";
   const payload = await response.json() as { sessionId?: unknown };
   return typeof payload.sessionId === "string" ? payload.sessionId : "";
+}
+
+function fitVideoFrameWidth(containerWidth: number, videoWidth: number, videoHeight: number, viewportHeight: number, reservedHeight: number) {
+  if (containerWidth <= 0 || videoWidth <= 0 || videoHeight <= 0 || viewportHeight <= reservedHeight) return undefined;
+  const maxHeight = Math.min(viewportHeight * 0.86, viewportHeight - reservedHeight, 1_100);
+  return Math.floor(Math.min(containerWidth, maxHeight * videoWidth / videoHeight));
 }
 
 const formatCountdown = (remainingMs: number) => {
@@ -414,7 +422,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [resolution, setResolution] = useState("");
-  const [cameraAspectRatio, setCameraAspectRatio] = useState("16 / 9");
+  const [cameraDimensions, setCameraDimensions] = useState({ width: 16, height: 9 });
+  const [cameraFrameWidth, setCameraFrameWidth] = useState<number>();
   const [cameraSession, setCameraSession] = useState<CameraSession>();
   const [pairingState, setPairingState] = useState<PairingState>("idle");
   const [pairingError, setPairingError] = useState("");
@@ -426,6 +435,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const operationRef = useRef(0);
   const pairingOperationRef = useRef(0);
   const mountedRef = useRef(true);
+  const previewFrameRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
@@ -440,6 +450,31 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   };
+
+  useEffect(() => {
+    if (cameraState !== "preview") {
+      setCameraFrameWidth(undefined);
+      return;
+    }
+    const frame = previewFrameRef.current;
+    const panel = frame?.parentElement;
+    if (!frame || !panel) return;
+    const fitFrame = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const width = fitVideoFrameWidth(panel.clientWidth, cameraDimensions.width, cameraDimensions.height, viewportHeight, 180);
+      if (width !== undefined) setCameraFrameWidth(width);
+    };
+    fitFrame();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(fitFrame);
+    observer?.observe(panel);
+    window.addEventListener("resize", fitFrame);
+    window.visualViewport?.addEventListener("resize", fitFrame);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitFrame);
+      window.visualViewport?.removeEventListener("resize", fitFrame);
+    };
+  }, [cameraState, cameraDimensions.width, cameraDimensions.height]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -658,7 +693,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
       setSelectedDeviceId(trackSettings.deviceId ?? deviceId ?? "");
       if (trackSettings.width && trackSettings.height) {
-        setCameraAspectRatio(`${trackSettings.width} / ${trackSettings.height}`);
+        setCameraDimensions({ width: trackSettings.width, height: trackSettings.height });
       }
       setResolution(trackSettings.width && trackSettings.height ? `${trackSettings.width} × ${trackSettings.height}` : copy.autoResolution);
       setCameraState("preview");
@@ -701,9 +736,9 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const pairUrl = cameraSession ? pairingUrlFor(cameraSession.invite.inviteId) : "";
 
   return (
-    <main className="page-shell">
+    <main className={`page-shell${cameraState === "preview" ? " camera-monitoring-shell" : ""}`}>
       <div className="tech-grid" aria-hidden="true" />
-      <div className="app-surface role-surface camera-surface">
+      <div className={`app-surface role-surface camera-surface${cameraState === "preview" ? " camera-monitoring-surface" : ""}`}>
         <AppHeader mode="camera" onHome={onHome} {...settings} />
         <section className={`camera-layout${cameraState === "preview" ? " camera-preview-layout" : ""}`} aria-labelledby="camera-title">
           <div className="role-intro camera-copy">
@@ -771,7 +806,14 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
               <span>VIDEO / {cameraState.toUpperCase()}</span>
               <span>STORE / OFF</span>
             </div>
-            <div className={`preview-frame preview-${cameraState}`} style={{ aspectRatio: cameraAspectRatio }}>
+            <div
+              ref={previewFrameRef}
+              className={`preview-frame preview-${cameraState}`}
+              style={{
+                aspectRatio: `${cameraDimensions.width} / ${cameraDimensions.height}`,
+                width: cameraFrameWidth ? `${cameraFrameWidth}px` : undefined
+              }}
+            >
               <video ref={videoRef} autoPlay muted playsInline aria-label={copy.localPreview} />
               {cameraState !== "preview" ? (
                 <div className="preview-placeholder">
@@ -868,8 +910,12 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
   const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected">("connecting");
   const [connectionRoute, setConnectionRoute] = useState<"relay" | "direct" | "unknown">("unknown");
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [viewerFrameWidth, setViewerFrameWidth] = useState<number>();
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
+  const startupTimeoutRef = useRef<number | undefined>(undefined);
+  const lastResumeAttemptRef = useRef(0);
   const scannerVideoRef = useRef<HTMLVideoElement>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
 
@@ -933,52 +979,156 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   }, [queryInviteId, pairingState]);
 
   useEffect(() => {
+    if (pairingState !== "paired") {
+      setViewerFrameWidth(undefined);
+      return;
+    }
+    const video = liveVideoRef.current;
+    const stage = video?.parentElement;
+    if (!video || !stage) return;
+    const fitFrame = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const width = fitVideoFrameWidth(stage.clientWidth, video.videoWidth || 16, video.videoHeight || 9, viewportHeight, 160);
+      if (width !== undefined) setViewerFrameWidth(width);
+    };
+    fitFrame();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(fitFrame);
+    observer?.observe(stage);
+    video.addEventListener("loadedmetadata", fitFrame);
+    video.addEventListener("resize", fitFrame);
+    window.addEventListener("resize", fitFrame);
+    window.visualViewport?.addEventListener("resize", fitFrame);
+    return () => {
+      observer?.disconnect();
+      video.removeEventListener("loadedmetadata", fitFrame);
+      video.removeEventListener("resize", fitFrame);
+      window.removeEventListener("resize", fitFrame);
+      window.visualViewport?.removeEventListener("resize", fitFrame);
+    };
+  }, [pairingState, connectionAttempt]);
+
+  useEffect(() => {
     if (pairingState !== "paired") return;
-    if (typeof RTCPeerConnection === "undefined") return;
+    let wasHidden = document.visibilityState === "hidden";
+    const reconnect = () => {
+      const now = Date.now();
+      if (now - lastResumeAttemptRef.current < 1_000) return;
+      lastResumeAttemptRef.current = now;
+      setLiveState("connecting");
+      setConnectionRoute("unknown");
+      setConnectionAttempt((attempt) => attempt + 1);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") wasHidden = true;
+      else if (wasHidden) {
+        wasHidden = false;
+        reconnect();
+      }
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) reconnect();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [pairingState]);
+
+  useEffect(() => {
+    if (pairingState !== "paired") return;
+    if (typeof RTCPeerConnection === "undefined") {
+      setLiveState("disconnected");
+      return;
+    }
     let socket: Socket | undefined;
     let cancelled = false;
     let peer: RTCPeerConnection | null = null;
+    let routeTimer: number | undefined;
+    startupTimeoutRef.current = window.setTimeout(() => {
+      setLiveState((state) => state === "live" ? state : "disconnected");
+    }, 30_000);
     void (async () => {
       try {
-      const sessionId = await getViewerSessionIdHint();
-      if (!sessionId) throw new Error("Viewer session unavailable");
-      const iceServers = await loadIceServers(sessionId);
-      if (cancelled) return;
-      peer = new RTCPeerConnection({ iceServers });
-      viewerPeerRef.current = peer;
-      peer.onconnectionstatechange = () => { if (peer?.connectionState === "failed" || peer?.connectionState === "disconnected") setLiveState("disconnected"); };
-      peer.ontrack = (event) => { if (liveVideoRef.current) liveVideoRef.current.srcObject = event.streams[0]; };
-      peer.onicecandidate = (event) => { if (event.candidate) socket?.emit("rw:signal", { type: "ice", payload: event.candidate }); };
-      socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
-      socket.on("disconnect", () => setLiveState("disconnected"));
-      socket.on("rw:peer-left", (event: { role: string }) => { if (event.role === "camera") setLiveState("disconnected"); });
-      socket.on("rw:error", () => setLiveState("disconnected"));
-      socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
-        if (!peer) return;
-        try {
-        if (message.type === "offer") {
-          await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-          socket?.emit("rw:signal", { type: "answer", payload: answer });
-        } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
-        } catch { setLiveState("disconnected"); }
-      });
-      const routeTimer = window.setInterval(async () => {
-        if (!peer || peer.connectionState !== "connected") return;
-        const stats = await peer.getStats().catch(() => null);
-        if (!stats) return;
-        for (const item of stats.values()) {
-          if (item.type !== "candidate-pair" || !item.selected) continue;
-          const local = stats.get(item.localCandidateId);
-          if (local?.candidateType) setConnectionRoute(local.candidateType === "relay" ? "relay" : "direct");
-        }
-      }, 2_000);
-      socket.on("disconnect", () => window.clearInterval(routeTimer));
+        const sessionId = await getViewerSessionIdHint();
+        if (!sessionId) throw new Error("Viewer session unavailable");
+        const iceServers = await loadIceServers(sessionId);
+        if (cancelled) return;
+        peer = new RTCPeerConnection({ iceServers });
+        viewerPeerRef.current = peer;
+        peer.onconnectionstatechange = () => {
+          if (peer?.connectionState === "failed" || peer?.connectionState === "disconnected") {
+            if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+            setLiveState("disconnected");
+          }
+        };
+        peer.ontrack = (event) => {
+          const video = liveVideoRef.current;
+          if (!video) return;
+          video.srcObject = event.streams[0];
+          void video.play().catch(() => setLiveState("disconnected"));
+        };
+        peer.onicecandidate = (event) => { if (event.candidate) socket?.emit("rw:signal", { type: "ice", payload: event.candidate }); };
+        socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
+        socket.on("disconnect", () => {
+          if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          setLiveState("disconnected");
+        });
+        socket.on("rw:peer-left", (event: { role: string }) => {
+          if (event.role === "camera") {
+            if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+            setLiveState("disconnected");
+          }
+        });
+        socket.on("rw:viewer-replaced", () => {
+          peer?.close();
+          if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          setLiveState("disconnected");
+        });
+        socket.on("rw:error", () => {
+          if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          setLiveState("disconnected");
+        });
+        socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
+          if (!peer) return;
+          try {
+            if (message.type === "offer") {
+              await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+              const answer = await peer.createAnswer();
+              await peer.setLocalDescription(answer);
+              socket?.emit("rw:signal", { type: "answer", payload: answer });
+            } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+          } catch {
+            setLiveState("disconnected");
+          }
+        });
+        routeTimer = window.setInterval(async () => {
+          if (!peer || peer.connectionState !== "connected") return;
+          const stats = await peer.getStats().catch(() => null);
+          if (!stats) return;
+          for (const item of stats.values()) {
+            if (item.type !== "candidate-pair" || !item.selected) continue;
+            const local = stats.get(item.localCandidateId);
+            if (local?.candidateType) setConnectionRoute(local.candidateType === "relay" ? "relay" : "direct");
+          }
+        }, 2_000);
       } catch { if (!cancelled) setLiveState("disconnected"); }
     })();
-    return () => { cancelled = true; peer?.close(); viewerPeerRef.current = null; socket?.disconnect(); };
-  }, [pairingState]);
+    return () => {
+      cancelled = true;
+      if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
+      if (routeTimer !== undefined) window.clearInterval(routeTimer);
+      if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+      if (peer) {
+        peer.onconnectionstatechange = null;
+        peer.ontrack = null;
+      }
+      peer?.close();
+      viewerPeerRef.current = null;
+      socket?.disconnect();
+    };
+  }, [pairingState, connectionAttempt]);
 
   const submitPairing = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1028,17 +1178,17 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
   const statusText = pairingState === "paired" ? liveState === "live" ? "Live" : liveState === "disconnected" ? "Disconnected" : "Connecting" : copy.waitingPair;
   const statusClass = pairingState === "paired"
-    ? "status-preview"
+    ? liveState === "live" ? "status-live" : liveState === "disconnected" ? "status-error" : "status-requesting"
     : viewerError || scannerError
       ? "status-error"
       : "status-idle";
 
   return (
-    <main className="page-shell">
+    <main className={`page-shell${pairingState === "paired" ? " viewer-live-shell" : ""}`}>
       <div className="tech-grid" aria-hidden="true" />
-      <div className="app-surface role-surface">
+      <div className={`app-surface role-surface${pairingState === "paired" ? " viewer-live-surface" : ""}`}>
         <AppHeader mode="viewer" onHome={onHome} {...settings} />
-        <section className={`role-layout viewer-layout${pairingState === "paired" ? " viewer-live-layout" : ""}`} aria-labelledby="viewer-title">
+        <section className={`role-layout viewer-layout${pairingState === "paired" ? " viewer-live-layout" : ""}${liveState === "live" ? " viewer-stream-live" : ""}`} aria-labelledby="viewer-title">
           <div className="role-intro">
             <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
             <p className="eyebrow"><span aria-hidden="true">●</span> {copy.viewerEyebrow}</p>
@@ -1053,9 +1203,21 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
             {pairingState === "paired" ? (
               <div className="viewer-paired">
-                <video ref={liveVideoRef} autoPlay playsInline aria-label="Live room video" onPlaying={() => setLiveState("live")} onStalled={() => setLiveState("disconnected")} />
+                <video ref={liveVideoRef} style={{ width: viewerFrameWidth ? `${viewerFrameWidth}px` : undefined }} autoPlay playsInline aria-label="Live room video" onPlaying={() => {
+                  if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
+                  startupTimeoutRef.current = undefined;
+                  setLiveState("live");
+                }} onStalled={() => {
+                  if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+                  setLiveState("disconnected");
+                }} />
                 <h2>{copy.viewerPaired}</h2>
-                <p>{liveState === "disconnected" ? "Connection unavailable. Retry by reopening this viewer page." : copy.viewerPairedHelp}</p>
+                <p>{liveState === "disconnected" ? "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
+                {liveState === "disconnected" ? <button className="primary-button viewer-retry-button" type="button" onClick={() => {
+                  setLiveState("connecting");
+                  setConnectionRoute("unknown");
+                  setConnectionAttempt((attempt) => attempt + 1);
+                }}>{copy.retryConnection}</button> : null}
                 {liveState === "live" ? <p role="status">Connection route: {connectionRoute === "relay" ? "Relay" : connectionRoute === "direct" ? "Direct" : "Checking"}</p> : null}
               </div>
             ) : inviteValid ? (
