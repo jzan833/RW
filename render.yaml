@@ -16,3 +16,7 @@ services:
         value: 0.0.0.0
       - key: SERVE_WEB
         value: "true"
+      - key: METERED_DOMAIN
+        sync: false
+      - key: METERED_SECRET_KEY
+        sync: false

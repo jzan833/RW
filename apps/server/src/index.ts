@@ -38,14 +38,23 @@ export function createRwServer({
   const app = express();
   const sessionStore = new MonitoringSessionStore({ secret: sessionSecret, now });
   const turnCache = new Map<string, { iceServers: Awaited<ReturnType<typeof issueIceServers>>; validUntil: number }>();
+  const turnRequests = new Map<string, Promise<Awaited<ReturnType<typeof issueIceServers>>>>();
   const loadCachedIceServers = async (sessionId: string) => {
     const current = (now ?? Date.now)();
-    let cached = turnCache.get(sessionId);
-    if (!cached || cached.validUntil <= current) {
-      cached = { iceServers: await issueTurn(), validUntil: current + 45 * 60_000 };
-      turnCache.set(sessionId, cached);
-    }
-    return cached.iceServers;
+    const cached = turnCache.get(sessionId);
+    if (cached && cached.validUntil > current) return cached.iceServers;
+    const inFlight = turnRequests.get(sessionId);
+    if (inFlight) return inFlight;
+    const request = issueTurn().then((iceServers) => {
+      if (turnRequests.get(sessionId) === request) {
+        turnCache.set(sessionId, { iceServers, validUntil: (now ?? Date.now)() + 45 * 60_000 });
+      }
+      return iceServers;
+    }).finally(() => {
+      if (turnRequests.get(sessionId) === request) turnRequests.delete(sessionId);
+    });
+    turnRequests.set(sessionId, request);
+    return request;
   };
   const pairingIpLimiter = new SlidingWindowRateLimiter({
     limit: PAIRING_IP_LIMIT,
@@ -104,6 +113,7 @@ export function createRwServer({
     const sessionId = credentials.sessionId;
     const room = `session:${sessionId}`;
     turnCache.delete(sessionId);
+    turnRequests.delete(sessionId);
     speakerReadySessions.delete(sessionId);
     const alarm = clearActiveAlarm(sessionId);
     io.to(room).emit("rw:session-ended");

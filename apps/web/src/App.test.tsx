@@ -583,8 +583,10 @@ describe("T17 viewer hold-to-talk", () => {
     const sender = { replaceTrack: vi.fn(async () => undefined) };
     const audioTransceiver = { direction: "recvonly", receiver: { track: { kind: "audio" } }, sender };
     const peers: Array<{ ontrack: ((event: unknown) => void) | null }> = [];
+    let releaseQueuedCandidate: (() => void) | undefined;
     class FakePeerConnection {
       connectionState = "new";
+      remoteDescription: RTCSessionDescriptionInit | null = null;
       ontrack: ((event: unknown) => void) | null = null;
       onconnectionstatechange: (() => void) | null = null;
       onicecandidate: (() => void) | null = null;
@@ -593,7 +595,12 @@ describe("T17 viewer hold-to-talk", () => {
         return [audioTransceiver];
       }
       createOffer = vi.fn(async () => ({ type: "offer", sdp: "talk-offer" } as RTCSessionDescriptionInit));
+      createAnswer = vi.fn(async () => ({ type: "answer", sdp: "viewer-answer" } as RTCSessionDescriptionInit));
+      setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.remoteDescription = description; });
       setLocalDescription = vi.fn(async () => undefined);
+      addIceCandidate = vi.fn()
+        .mockImplementationOnce(() => new Promise<void>((resolve) => { releaseQueuedCandidate = resolve; }))
+        .mockResolvedValue(undefined);
       getStats = vi.fn(async () => new Map());
       close = vi.fn();
     }
@@ -632,6 +639,16 @@ describe("T17 viewer hold-to-talk", () => {
 
     await screen.findByText("Viewer paired");
     await waitFor(() => expect(peers).toHaveLength(1));
+    act(() => socketHarness.sockets[0].trigger("rw:signal", { type: "ice", payload: { candidate: "candidate-first" } }));
+    act(() => socketHarness.sockets[0].trigger("rw:signal", { type: "offer", payload: { type: "offer", sdp: "camera-offer" } }));
+    await waitFor(() => expect((peers[0] as FakePeerConnection).addIceCandidate).toHaveBeenCalledTimes(1));
+    act(() => socketHarness.sockets[0].trigger("rw:signal", { type: "ice", payload: { candidate: "candidate-second" } }));
+    await waitFor(() => expect((peers[0] as FakePeerConnection).addIceCandidate).toHaveBeenCalledTimes(2));
+    releaseQueuedCandidate?.();
+    await waitFor(() => expect(socketHarness.sockets[0].emit).toHaveBeenCalledWith("rw:signal", {
+      type: "answer", payload: { type: "answer", sdp: "viewer-answer" }
+    }));
+    expect(audioTransceiver.direction).toBe("sendrecv");
     fireEvent.playing(screen.getByLabelText("Live room video"));
     expect(screen.getByRole("region", { name: "Room audio" })).toBeTruthy();
     expect(screen.getByText("Listen to room audio, hold to talk back, or play an alarm.")).toBeTruthy();
@@ -648,11 +665,7 @@ describe("T17 viewer hold-to-talk", () => {
     expect(await screen.findByRole("button", { name: "Talking — release to stop" })).toBeTruthy();
     expect(getUserMedia).toHaveBeenCalledWith({ audio: true, video: false });
     expect(sender.replaceTrack).toHaveBeenCalledWith(microphoneTrack);
-    expect(audioTransceiver.direction).toBe("sendrecv");
-    expect(socketHarness.sockets[0].emit).toHaveBeenCalledWith("rw:signal", {
-      type: "offer",
-      payload: { type: "offer", sdp: "talk-offer" }
-    });
+    expect(socketHarness.sockets[0].emit.mock.calls.filter(([event, value]) => event === "rw:signal" && value?.type === "offer")).toHaveLength(0);
     expect(socketHarness.sockets[0].emit).toHaveBeenCalledWith("rw:talk-status", { talking: true });
 
     fireEvent.pointerUp(readyButton, { pointerId: 7 });
@@ -796,6 +809,7 @@ describe("T22 connection startup", () => {
 
     await screen.findByRole("heading", { name: "Viewer paired" });
     await waitFor(() => expect(startupTimeouts).toHaveLength(1));
+    expect(await screen.findByText("Cross-network relay is unavailable. Check the service's TURN settings, then retry.")).toBeTruthy();
     act(() => startupTimeouts[0]());
 
     expect(screen.getByText("Video did not start within 20 seconds. Check the connection, then retry.")).toBeTruthy();

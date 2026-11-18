@@ -473,6 +473,38 @@ function waitForSocketConnect(client: Socket): Promise<void> {
 }
 
 describe("T14 short-lived TURN authorization", () => {
+  it("shares one TURN request when camera and viewer join at the same time", async () => {
+    const iceServers = [{ urls: "turn:relay.example.test", username: "temporary", credential: "temporary" }];
+    const issueTurn = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return iceServers;
+    });
+    const instance = createRwServer({ issueTurn });
+    instance.httpServer.listen(0, "127.0.0.1");
+    await once(instance.httpServer, "listening");
+    try {
+      const session = await createMonitoringSession(instance);
+      const paired = await pairViewer(instance, session.invite.inviteId, session.invite.pin);
+      const cookie = viewerCookieHeader(paired).requestHeader;
+      const address = instance.httpServer.address() as AddressInfo;
+      const origin = `http://127.0.0.1:${address.port}`;
+      const [camera, viewer] = await Promise.all([
+        fetch(`${origin}/api/turn-credentials/${session.sessionId}`, {
+          headers: { Authorization: `Bearer ${session.cameraToken}` }
+        }),
+        fetch(`${origin}/api/viewer-session/connection`, { headers: { Cookie: cookie } })
+      ]);
+      expect(camera.status).toBe(200);
+      expect(viewer.status).toBe(200);
+      expect((await camera.json() as { iceServers: unknown }).iceServers).toEqual(iceServers);
+      expect((await viewer.json() as { iceServers: unknown }).iceServers).toEqual(iceServers);
+      expect(issueTurn).toHaveBeenCalledOnce();
+    } finally {
+      instance.io.close();
+      await new Promise<void>((resolve) => instance.httpServer.close(() => resolve()));
+    }
+  });
+
   it("only issues ICE servers to the paired viewer or camera and rejects stopped sessions", async () => {
     const issueTurn = vi.fn().mockResolvedValue([{ urls: "turn:relay.example.test", username: "temporary", credential: "temporary" }]);
     const instance = createRwServer({ issueTurn });

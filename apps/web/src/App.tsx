@@ -144,6 +144,7 @@ const messages = {
     viewerPairedHelp: "This browser is authorized. Reconnect if the live picture stops.",
     monitoringEnded: "Monitoring ended",
     connectionTimeout: "Video did not start within 20 seconds. Check the connection, then retry.",
+    relayUnavailable: "Cross-network relay is unavailable. Check the service's TURN settings, then retry.",
     retryConnection: "Retry connection",
     pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
     pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
@@ -275,6 +276,7 @@ const messages = {
     viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live ပုံရိပ်ရပ်သွားလျှင် ပြန်ချိတ်ဆက်နိုင်ပါတယ်။",
     monitoringEnded: "Monitoring ရပ်တန့်သွားသည်",
     connectionTimeout: "စက္ကန့် ၂၀ အတွင်း Video မစတင်နိုင်ပါ။ အင်တာနက်ကိုစစ်ပြီး ပြန်ချိတ်ပါ။",
+    relayUnavailable: "Network မတူသော device များအတွက် relay မရနိုင်ပါ။ Service ၏ TURN setting ကို စစ်ပြီး ပြန်ချိတ်ပါ။",
     retryConnection: "ပြန်ချိတ်ဆက်ရန်",
     pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
     pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
@@ -867,8 +869,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         if (message.type === "offer") {
           cameraRemoteDescriptionReadyRef.current = false;
           await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
           cameraRemoteDescriptionReadyRef.current = true;
+          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
           socket.emit("rw:signal", { type: "answer", payload: answer });
@@ -876,8 +878,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         if (message.type === "answer") {
           cameraRemoteDescriptionReadyRef.current = false;
           await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
           cameraRemoteDescriptionReadyRef.current = true;
+          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
         }
         if (message.type === "ice") {
           if (!cameraRemoteDescriptionReadyRef.current || !peer.remoteDescription) {
@@ -1361,6 +1363,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
   const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected" | "ended">("connecting");
   const [connectionTimedOut, setConnectionTimedOut] = useState(false);
+  const [relayUnavailable, setRelayUnavailable] = useState(false);
   const [speakerReady, setSpeakerReady] = useState(false);
   const [talkState, setTalkState] = useState<"idle" | "requesting" | "talking" | "error">("idle");
   const [talkError, setTalkError] = useState("");
@@ -1441,7 +1444,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       const peer = viewerPeerRef.current;
       const audioTransceiver = peer?.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === "audio");
       const sender = audioTransceiver?.sender;
-      if (!track || !sender) throw new Error("The live audio channel is unavailable");
+      if (!track || !sender || audioTransceiver?.direction !== "sendrecv") throw new Error("The live audio channel is unavailable");
       if (!talkHeldRef.current || liveStateRef.current !== "live" || !speakerReadyRef.current) {
         stream.getTracks().forEach((activeTrack) => activeTrack.stop());
         setTalkState("idle");
@@ -1451,11 +1454,6 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       talkSenderRef.current = sender;
       track.addEventListener("ended", () => stopTalk(), { once: true });
       await sender.replaceTrack(track);
-      if (audioTransceiver.direction !== "sendrecv") audioTransceiver.direction = "sendrecv";
-      viewerRemoteDescriptionReadyRef.current = false;
-      const offer = await peer!.createOffer();
-      await peer!.setLocalDescription(offer);
-      viewerSocketRef.current?.emit("rw:signal", { type: "offer", payload: offer });
       if (!talkHeldRef.current || liveStateRef.current !== "live" || !speakerReadyRef.current) {
         await sender.replaceTrack(null).catch(() => undefined);
         stream.getTracks().forEach((activeTrack) => activeTrack.stop());
@@ -1603,6 +1601,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       return;
     }
     sessionEndedRef.current = false;
+    setRelayUnavailable(false);
     let socket: Socket | undefined;
     let cancelled = false;
     let peer: RTCPeerConnection | null = null;
@@ -1617,6 +1616,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         const connectionInfo = await getViewerConnectionInfo();
         if (!connectionInfo) throw new Error("Viewer session unavailable");
         if (cancelled) return;
+        setRelayUnavailable(!connectionInfo.iceServers.some((server) => [server.urls].flat().some((url) => /^turns?:/i.test(url))));
         peer = new RTCPeerConnection({ iceServers: connectionInfo.iceServers });
         viewerPeerRef.current = peer;
         pendingViewerCandidatesRef.current = [];
@@ -1755,16 +1755,18 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
             if (message.type === "offer") {
               viewerRemoteDescriptionReadyRef.current = false;
               await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
               viewerRemoteDescriptionReadyRef.current = true;
+              const talkTransceiver = peer.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === "audio");
+              if (talkTransceiver) talkTransceiver.direction = "sendrecv";
+              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
               const answer = await peer.createAnswer();
               await peer.setLocalDescription(answer);
               socket?.emit("rw:signal", { type: "answer", payload: answer });
             } else if (message.type === "answer") {
               viewerRemoteDescriptionReadyRef.current = false;
               await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
               viewerRemoteDescriptionReadyRef.current = true;
+              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
             } else if (message.type === "ice") {
               if (!viewerRemoteDescriptionReadyRef.current || !peer.remoteDescription) {
                 pendingViewerCandidatesRef.current.push(message.payload as RTCIceCandidateInit);
@@ -1899,6 +1901,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 <audio ref={liveAudioRef} autoPlay playsInline className="visually-hidden" />
                 <h2>{copy.viewerPaired}</h2>
                 <p>{liveState === "ended" ? copy.monitoringEnded : liveState === "disconnected" ? connectionTimedOut ? copy.connectionTimeout : "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
+                {relayUnavailable && liveState !== "live" && liveState !== "ended" ? <p className="talk-error" role="alert">{copy.relayUnavailable}</p> : null}
                 {liveState === "live" ? (
                   <section className="viewer-audio-console" aria-label={copy.roomAudio}>
                     <div className="viewer-audio-heading">
