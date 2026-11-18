@@ -424,6 +424,7 @@ h1 {
 .camera-preview-layout .device-select { grid-column: 1; margin-top: 2px; max-width: 380px; }
 .camera-preview-layout .camera-actions { grid-column: 2; grid-row: 1 / span 3; margin: 0; }
 .camera-preview-layout .camera-actions .primary-button { min-width: 150px; width: auto; }
+.camera-preview-layout .media-control-card { grid-column: 1 / -1; }
 .camera-preview-layout .camera-error { grid-column: 1 / -1; margin: 0; }
 .camera-preview-layout .preview-panel { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
 .camera-preview-layout .preview-frame { margin-inline: auto; max-height: min(92dvh, calc(100dvh - 180px), 1200px); max-width: 100%; width: 100%; }
@@ -468,6 +469,26 @@ h1 {
   gap: 10px;
   margin-top: 20px;
 }
+.media-control-card {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 14px;
+}
+.media-control-card strong { font-size: 0.84rem; }
+.media-control-card .regenerate-button { margin: 0; width: auto; }
+.audio-state { color: var(--muted); font-size: 0.78rem; margin: 5px 0 0; }
+.audio-state-on { color: var(--safe); font-weight: 750; }
+.talk-status-card { justify-content: flex-start; }
+.alarm-state-card { justify-content: flex-start; }
+.alarm-state-card .audio-state { margin: 0; }
+.stop-alarm-button { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); margin: 0; width: auto; }
 .primary-button {
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   border: 0;
@@ -836,6 +857,42 @@ h1 {
   width: 100%;
 }
 .viewer-retry-button { justify-self: start; width: auto; }
+.viewer-media-controls {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px 14px;
+}
+.viewer-alarm-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.viewer-alarm-controls .regenerate-button { margin: 0; width: auto; }
+.viewer-alarm-controls .primary-button { width: auto; }
+.viewer-alarm-controls .audio-state { margin: 0; }
+.talk-control-copy { min-width: 0; }
+.talk-control-copy .audio-state { margin: 0; }
+.talk-error { color: var(--danger); font-size: 0.78rem; margin: 6px 0 0; }
+.hold-to-talk { min-width: 180px; touch-action: none; user-select: none; width: auto; }
+.hold-to-talk:disabled { cursor: not-allowed; opacity: 0.58; }
+.hold-to-talk-active { background: var(--danger); color: #fff; }
+.audio-unlock-button { justify-self: start; margin-top: 0; }
+.stop-viewing-button { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); justify-self: start; margin-top: 0; width: auto; }
+.visually-hidden {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 
 .viewer-pairing-form .device-icon,
 .viewer-paired .device-icon {
@@ -987,6 +1044,8 @@ h1 {
   }
   .camera-preview-layout .camera-actions .primary-button { font-size: 0.82rem; min-width: 0; padding: 10px 8px; width: 100%; }
   .camera-preview-layout .device-select { max-width: none; }
+  .viewer-media-controls { grid-template-columns: minmax(0, 1fr); }
+  .hold-to-talk { min-height: 48px; width: 100%; }
   .preview-panel { padding: 0 9px 9px; }
   .tech-telemetry {
     font-size: 0.52rem;

@@ -68,6 +68,36 @@ const messages = {
     createPairing: "Create pairing code",
     creatingPairing: "Creating secure code…",
     cameraPairingTitle: "Pair this viewer",
+    roomAudio: "Room audio",
+    microphoneOff: "Microphone Off",
+    microphoneOn: "Microphone On",
+    enableMicrophone: "Enable room audio",
+    disableMicrophone: "Turn room audio off",
+    microphoneStarting: "Enabling microphone…",
+    microphoneError: "Microphone access failed. Allow microphone access, then try again.",
+    speakerNotReady: "Speaker Not Ready",
+    enableSpeaker: "Enable speaker",
+    testSpeakerAgain: "Test speaker again",
+    speakerChecking: "Testing speaker…",
+    speakerReady: "Speaker Ready",
+    speakerHelp: "Play a short test sound on this device before using talk or alarm.",
+    speakerError: "Speaker playback was blocked. Check this device's sound settings and try again.",
+    viewerTalking: "Viewer talking",
+    viewerNotTalking: "Viewer is not talking",
+    stopViewing: "Stop Viewing",
+    holdToTalk: "Hold to Talk",
+    requestingTalk: "Requesting microphone…",
+    talking: "Talking — release to stop",
+    speakerRequired: "Enable speaker on the camera to talk.",
+    talkError: "Microphone access failed. Allow microphone access, then press and hold to try again.",
+    tapToHearAudio: "Tap to hear room audio",
+    soundAlarm: "Sound Alarm",
+    sendingAlarm: "Sending alarm…",
+    alarmPlaying: "Alarm playing",
+    alarmStopping: "Stopping alarm…",
+    alarmFinished: "Alarm finished",
+    alarmFailed: "Alarm failed. Check that the camera speaker is ready and try again.",
+    stopAlarm: "Stop alarm",
     pairingReady: "Pairing code ready",
     pairingHelp: "Scan the QR code on the viewer phone, then enter the separate six-digit PIN.",
     pairingPin: "Pairing PIN",
@@ -157,6 +187,36 @@ const messages = {
     createPairing: "Pairing code ထုတ်မယ်",
     creatingPairing: "လုံခြုံသော code ထုတ်နေသည်…",
     cameraPairingTitle: "Viewer ကို Pair လုပ်ပါ",
+    roomAudio: "အခန်းအသံ",
+    microphoneOff: "Microphone ပိတ်ထားသည်",
+    microphoneOn: "Microphone ဖွင့်ထားသည်",
+    enableMicrophone: "အခန်းအသံ ဖွင့်မယ်",
+    disableMicrophone: "အခန်းအသံ ပိတ်မယ်",
+    microphoneStarting: "Microphone ဖွင့်နေသည်…",
+    microphoneError: "Microphone မဖွင့်နိုင်ပါ။ Permission ခွင့်ပြုပြီး ပြန်စမ်းပါ။",
+    speakerNotReady: "Speaker အဆင်သင့်မဖြစ်သေးပါ",
+    enableSpeaker: "Speaker ဖွင့်မယ်",
+    testSpeakerAgain: "Speaker ပြန်စမ်းမယ်",
+    speakerChecking: "Speaker စမ်းနေသည်…",
+    speakerReady: "Speaker အဆင်သင့်ဖြစ်ပြီ",
+    speakerHelp: "Talk သို့မဟုတ် alarm မသုံးမီ ဒီ device မှာ စမ်းသပ်အသံဖွင့်ပါ။",
+    speakerError: "Speaker အသံမဖွင့်နိုင်ပါ။ Device အသံ setting ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    viewerTalking: "Viewer က စကားပြောနေသည်",
+    viewerNotTalking: "Viewer စကားမပြောသေးပါ",
+    stopViewing: "ကြည့်ရှုမှုရပ်မယ်",
+    holdToTalk: "ဖိထားပြီး စကားပြောမယ်",
+    requestingTalk: "Microphone permission တောင်းနေသည်…",
+    talking: "စကားပြောနေသည် — ရပ်ရန်လွှတ်ပါ",
+    speakerRequired: "စကားပြောရန် Camera မှာ Speaker ဖွင့်ပါ။",
+    talkError: "Microphone မဖွင့်နိုင်ပါ။ Permission ခွင့်ပြုပြီး ခလုတ်ကိုဖိထားကာ ပြန်စမ်းပါ။",
+    tapToHearAudio: "အခန်းအသံကြားရန် နှိပ်ပါ",
+    soundAlarm: "Alarm မြည်စေမယ်",
+    sendingAlarm: "Alarm ပို့နေသည်…",
+    alarmPlaying: "Alarm မြည်နေသည်",
+    alarmStopping: "Alarm ရပ်နေသည်…",
+    alarmFinished: "Alarm ပြီးသွားပြီ",
+    alarmFailed: "Alarm မမြည်နိုင်ပါ။ Camera speaker ကိုစစ်ပြီး ပြန်စမ်းပါ။",
+    stopAlarm: "Alarm ရပ်မယ်",
     pairingReady: "Pairing code အဆင်သင့်ဖြစ်ပြီ",
     pairingHelp: "Viewer ဖုန်းနဲ့ QR code ကို scan လုပ်ပြီး သီးခြား ဂဏန်းခြောက်လုံး PIN ကိုထည့်ပါ။",
     pairingPin: "Pairing PIN",
@@ -290,12 +350,63 @@ function fitVideoFrameWidth(containerWidth: number, videoWidth: number, videoHei
   return Math.floor(Math.min(containerWidth, maxHeight * videoWidth / videoHeight));
 }
 
+function startAudioTone(context: AudioContext, frequency: number, durationSeconds: number) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.value = frequency;
+  gain.gain.value = 0.12;
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + durationSeconds);
+  return oscillator;
+}
+
+function playSpeakerTestTone(context: AudioContext) {
+  return new Promise<void>((resolve, reject) => {
+    let oscillator: OscillatorNode;
+    try {
+      oscillator = startAudioTone(context, 880, 0.22);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      try { oscillator.stop(); } catch { /* The test tone may already have ended. */ }
+      reject(new Error("Speaker test did not finish"));
+    }, 1_500);
+    oscillator.onended = () => {
+      window.clearTimeout(timeout);
+      if (context.state === "running") resolve();
+      else reject(new Error("Audio playback stopped"));
+    };
+  });
+}
+
+function startAlarmTone(context: AudioContext, durationSeconds: number) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sine";
+  for (let step = 0; step < Math.ceil(durationSeconds / 0.45); step += 1) {
+    oscillator.frequency.setValueAtTime(step % 2 === 0 ? 660 : 990, context.currentTime + step * 0.45);
+  }
+  gain.gain.value = 0.14;
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + durationSeconds);
+  return oscillator;
+}
+
 const formatCountdown = (remainingMs: number) => {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
 };
+
+const createAlarmRequestId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 const revokeCameraSession = (session: CameraSession, keepalive = false) => {
   try {
@@ -425,12 +536,28 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [cameraDimensions, setCameraDimensions] = useState({ width: 16, height: 9 });
   const [cameraFrameWidth, setCameraFrameWidth] = useState<number>();
   const [cameraSession, setCameraSession] = useState<CameraSession>();
+  const [microphoneOn, setMicrophoneOn] = useState(false);
+  const [microphoneRequesting, setMicrophoneRequesting] = useState(false);
+  const [microphoneError, setMicrophoneError] = useState("");
+  const [speakerState, setSpeakerState] = useState<"off" | "checking" | "ready" | "error">("off");
+  const [speakerError, setSpeakerError] = useState("");
+  const [alarmPlaying, setAlarmPlaying] = useState(false);
   const [pairingState, setPairingState] = useState<PairingState>("idle");
   const [pairingError, setPairingError] = useState("");
   const [qrCode, setQrCode] = useState("");
   const [clock, setClock] = useState(Date.now);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const microphoneOperationRef = useRef(0);
+  const cameraAudioSenderRef = useRef<RTCRtpSender | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const remoteAudioStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const speakerReadyRef = useRef(false);
+  const speakerOperationRef = useRef(0);
+  const alarmRequestIdRef = useRef<string | null>(null);
+  const alarmOscillatorRef = useRef<OscillatorNode | null>(null);
   const sessionRef = useRef<CameraSession | undefined>(undefined);
   const operationRef = useRef(0);
   const pairingOperationRef = useRef(0);
@@ -438,11 +565,151 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const previewFrameRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCameraCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const cameraRemoteDescriptionReadyRef = useRef(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [viewerTalking, setViewerTalking] = useState(false);
   const [signalConnected, setSignalConnected] = useState(false);
 
   const stopTracks = (stream: MediaStream | null) => {
     stream?.getTracks().forEach((track) => track.stop());
+  };
+
+  const stopMicrophone = () => {
+    microphoneOperationRef.current += 1;
+    const stream = microphoneStreamRef.current;
+    microphoneStreamRef.current = null;
+    void cameraAudioSenderRef.current?.replaceTrack(null).catch(() => undefined);
+    stopTracks(stream);
+    setMicrophoneOn(false);
+    setMicrophoneRequesting(false);
+  };
+
+  const finishAlarm = (requestId: string, status: "failed" | "ended", stopTone = true) => {
+    if (alarmRequestIdRef.current !== requestId) return;
+    alarmRequestIdRef.current = null;
+    const oscillator = alarmOscillatorRef.current;
+    alarmOscillatorRef.current = null;
+    if (stopTone && oscillator) {
+      try { oscillator.stop(); } catch { /* The oscillator may already have ended. */ }
+    }
+    setAlarmPlaying(false);
+    socketRef.current?.emit("rw:alarm-result", { requestId, status });
+  };
+
+  const stopAlarm = () => {
+    const requestId = alarmRequestIdRef.current;
+    if (requestId) finishAlarm(requestId, "ended");
+  };
+
+  const connectRemoteAudio = () => {
+    const context = audioContextRef.current;
+    const stream = remoteAudioStreamRef.current;
+    if (!context || context.state !== "running" || !stream) return;
+    remoteAudioSourceRef.current?.disconnect();
+    const source = context.createMediaStreamSource(stream);
+    source.connect(context.destination);
+    remoteAudioSourceRef.current = source;
+  };
+
+  const resetSpeaker = () => {
+    speakerOperationRef.current += 1;
+    stopAlarm();
+    speakerReadyRef.current = false;
+    setSpeakerState("off");
+    setSpeakerError("");
+    remoteAudioSourceRef.current?.disconnect();
+    remoteAudioSourceRef.current = null;
+    remoteAudioStreamRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== "closed") void context.close().catch(() => undefined);
+  };
+
+  const enableSpeaker = async () => {
+    const operation = speakerOperationRef.current + 1;
+    speakerOperationRef.current = operation;
+    stopAlarm();
+    setSpeakerState("checking");
+    setSpeakerError("");
+    speakerReadyRef.current = false;
+    socketRef.current?.emit("rw:speaker-status", { ready: false });
+    try {
+      const Context = window.AudioContext;
+      if (typeof Context !== "function") throw new Error("Web Audio is unavailable");
+      const context = audioContextRef.current ?? new Context();
+      audioContextRef.current = context;
+      context.onstatechange = () => {
+        if (audioContextRef.current !== context || context.state === "running" || !speakerReadyRef.current) return;
+        speakerReadyRef.current = false;
+        setSpeakerState("error");
+        setSpeakerError(copy.speakerError);
+        stopAlarm();
+        socketRef.current?.emit("rw:speaker-status", { ready: false });
+      };
+      await context.resume();
+      if (context.state !== "running") throw new Error("Audio playback is suspended");
+      await playSpeakerTestTone(context);
+      if (!mountedRef.current || speakerOperationRef.current !== operation) return;
+      speakerReadyRef.current = true;
+      setSpeakerState("ready");
+      socketRef.current?.emit("rw:speaker-status", { ready: true });
+      connectRemoteAudio();
+    } catch {
+      if (!mountedRef.current || speakerOperationRef.current !== operation) return;
+      speakerReadyRef.current = false;
+      setSpeakerState("error");
+      setSpeakerError(copy.speakerError);
+      socketRef.current?.emit("rw:speaker-status", { ready: false });
+    }
+  };
+
+  const toggleMicrophone = async () => {
+    if (microphoneRequesting) return;
+    setMicrophoneError("");
+    if (microphoneStreamRef.current) {
+      stopMicrophone();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicrophoneError(copy.microphoneError);
+      return;
+    }
+
+    const operation = microphoneOperationRef.current + 1;
+    microphoneOperationRef.current = operation;
+    setMicrophoneRequesting(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const track = stream.getAudioTracks()[0];
+      if (!mountedRef.current || microphoneOperationRef.current !== operation || !cameraSession || !track) {
+        stopTracks(stream);
+        if (!track && mountedRef.current && microphoneOperationRef.current === operation) {
+          setMicrophoneError(copy.microphoneError);
+          setMicrophoneRequesting(false);
+        }
+        return;
+      }
+      track.addEventListener("ended", () => {
+        if (microphoneStreamRef.current !== stream) return;
+        microphoneStreamRef.current = null;
+        void cameraAudioSenderRef.current?.replaceTrack(null).catch(() => undefined);
+        setMicrophoneOn(false);
+        setMicrophoneError(copy.microphoneError);
+      }, { once: true });
+      await cameraAudioSenderRef.current?.replaceTrack(track);
+      if (!mountedRef.current || microphoneOperationRef.current !== operation) {
+        stopTracks(stream);
+        return;
+      }
+      microphoneStreamRef.current = stream;
+      setMicrophoneOn(true);
+      setMicrophoneRequesting(false);
+    } catch {
+      if (!mountedRef.current || microphoneOperationRef.current !== operation) return;
+      setMicrophoneRequesting(false);
+      setMicrophoneError(copy.microphoneError);
+    }
   };
 
   const clearStream = () => {
@@ -482,10 +749,20 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       mountedRef.current = false;
       operationRef.current += 1;
       pairingOperationRef.current += 1;
+      speakerOperationRef.current += 1;
       stopTracks(streamRef.current);
       streamRef.current = null;
       const activeSession = sessionRef.current;
       sessionRef.current = undefined;
+      microphoneOperationRef.current += 1;
+      stopTracks(microphoneStreamRef.current);
+      microphoneStreamRef.current = null;
+      remoteAudioSourceRef.current?.disconnect();
+      stopAlarm();
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        void audioContextRef.current.close().catch(() => undefined);
+      }
+      audioContextRef.current = null;
       if (activeSession) revokeCameraSession(activeSession, true);
     };
   }, []);
@@ -502,8 +779,15 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     if (typeof RTCPeerConnection === "undefined") return;
     const socket = io({ auth: { role: "camera", sessionId: cameraSession.sessionId, token: cameraSession.cameraToken }, transports: ["websocket"] });
     socketRef.current = socket;
-    socket.on("connect", () => setSignalConnected(true));
-    socket.on("disconnect", () => setSignalConnected(false));
+    socket.on("connect", () => {
+      setSignalConnected(true);
+      socket.emit("rw:speaker-status", { ready: speakerReadyRef.current });
+    });
+    socket.on("disconnect", () => {
+      setSignalConnected(false);
+      setViewerTalking(false);
+      stopAlarm();
+    });
     const makePeer = async () => {
       peerRef.current?.close();
       let iceServers: RTCIceServer[];
@@ -512,24 +796,76 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       if (!socket.connected || !streamRef.current?.getVideoTracks()[0] || streamRef.current.getVideoTracks()[0].readyState !== "live") return;
       const peer = new RTCPeerConnection({ iceServers });
       peerRef.current = peer;
+      pendingCameraCandidatesRef.current = [];
+      cameraRemoteDescriptionReadyRef.current = false;
       streamRef.current?.getTracks().forEach((track) => peer.addTrack(track, streamRef.current!));
+      const audioTransceiver = peer.addTransceiver("audio", { direction: "sendrecv" });
+      cameraAudioSenderRef.current = audioTransceiver.sender;
+      const microphoneTrack = microphoneStreamRef.current?.getAudioTracks()[0];
+      if (microphoneTrack) await audioTransceiver.sender.replaceTrack(microphoneTrack);
+      peer.ontrack = (event) => {
+        if (event.track.kind !== "audio") return;
+        remoteAudioStreamRef.current = event.streams[0] ?? new MediaStream([event.track]);
+        if (speakerReadyRef.current) connectRemoteAudio();
+      };
       peer.onicecandidate = (event) => { if (event.candidate) socket.emit("rw:signal", { type: "ice", payload: event.candidate }); };
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       socket.emit("rw:signal", { type: "offer", payload: offer });
     };
     socket.on("rw:peer-joined", (event: { role: string }) => { if (event.role === "viewer") void makePeer().catch(() => setPairingError("Live connection failed. Retry pairing.")); });
-    socket.on("rw:peer-left", (event: { role: string }) => { if (event.role === "viewer") { peerRef.current?.close(); peerRef.current = null; } });
+    socket.on("rw:peer-left", (event: { role: string }) => { if (event.role === "viewer") { peerRef.current?.close(); peerRef.current = null; cameraAudioSenderRef.current = null; remoteAudioSourceRef.current?.disconnect(); remoteAudioSourceRef.current = null; remoteAudioStreamRef.current = null; setViewerTalking(false); stopAlarm(); } });
     socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
       const peer = peerRef.current;
       if (!peer) return;
       try {
-        if (message.type === "answer") await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-        if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+        if (message.type === "offer") {
+          cameraRemoteDescriptionReadyRef.current = false;
+          await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
+          cameraRemoteDescriptionReadyRef.current = true;
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          socket.emit("rw:signal", { type: "answer", payload: answer });
+        }
+        if (message.type === "answer") {
+          cameraRemoteDescriptionReadyRef.current = false;
+          await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+          for (const candidate of pendingCameraCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
+          cameraRemoteDescriptionReadyRef.current = true;
+        }
+        if (message.type === "ice") {
+          if (!cameraRemoteDescriptionReadyRef.current || !peer.remoteDescription) {
+            pendingCameraCandidatesRef.current.push(message.payload as RTCIceCandidateInit);
+          } else await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+        }
       } catch { setPairingError("Live connection failed. Retry pairing."); }
     });
     socket.on("rw:viewer-count", (event: { count: number }) => setViewerCount(event.count));
-    return () => { peerRef.current?.close(); peerRef.current = null; socket.disconnect(); socketRef.current = null; setSignalConnected(false); setViewerCount(0); };
+    socket.on("rw:viewer-talking", (event: { talking: boolean }) => setViewerTalking(event.talking));
+    socket.on("rw:alarm", (event: { requestId: string }) => {
+      const requestId = event?.requestId;
+      const context = audioContextRef.current;
+      if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId)) return;
+      if (!speakerReadyRef.current || !context || context.state !== "running" || alarmRequestIdRef.current) {
+        socket.emit("rw:alarm-result", { requestId, status: "failed" });
+        return;
+      }
+      try {
+        const oscillator = startAlarmTone(context, 5);
+        alarmRequestIdRef.current = requestId;
+        alarmOscillatorRef.current = oscillator;
+        setAlarmPlaying(true);
+        oscillator.onended = () => finishAlarm(requestId, "ended", false);
+        socket.emit("rw:alarm-result", { requestId, status: "started" });
+      } catch {
+        socket.emit("rw:alarm-result", { requestId, status: "failed" });
+      }
+    });
+    socket.on("rw:alarm-stop", (event: { requestId: string }) => {
+      if (event?.requestId === alarmRequestIdRef.current) finishAlarm(event.requestId, "ended");
+    });
+    return () => { peerRef.current?.close(); peerRef.current = null; cameraAudioSenderRef.current = null; socket.disconnect(); socketRef.current = null; setSignalConnected(false); setViewerCount(0); };
   }, [cameraSession?.sessionId]);
 
   useEffect(() => {
@@ -567,6 +903,9 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
   const clearPairingSession = (revoke = true) => {
     pairingOperationRef.current += 1;
+    stopMicrophone();
+    setMicrophoneError("");
+    resetSpeaker();
     const activeSession = sessionRef.current;
     sessionRef.current = undefined;
     setCameraSession(undefined);
@@ -796,6 +1135,49 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 </button>
               )}
             </div>
+            {cameraSession && cameraState === "preview" ? (
+              <div className="media-control-card">
+                <div>
+                  <strong>{copy.roomAudio}</strong>
+                  <p className={microphoneOn ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={microphoneOn ? copy.microphoneOn : copy.microphoneOff}>
+                    {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.microphoneOn : copy.microphoneOff}
+                  </p>
+                </div>
+                <button className="regenerate-button" type="button" disabled={microphoneRequesting} onClick={() => void toggleMicrophone()}>
+                  {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.disableMicrophone : copy.enableMicrophone}
+                </button>
+              </div>
+            ) : null}
+            {cameraSession && cameraState === "preview" ? (
+              <div className="media-control-card">
+                <div>
+                  <strong>Speaker</strong>
+                  <p className={speakerState === "ready" ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}>
+                    {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}
+                  </p>
+                  <p className="audio-state">{copy.speakerHelp}</p>
+                </div>
+                <button className="regenerate-button" type="button" disabled={speakerState === "checking"} onClick={() => void enableSpeaker()}>
+                  {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.testSpeakerAgain : copy.enableSpeaker}
+                </button>
+              </div>
+            ) : null}
+            {cameraSession && cameraState === "preview" ? (
+              <div className="media-control-card talk-status-card">
+                <strong>Talk status</strong>
+                <p className={viewerTalking ? "audio-state audio-state-on" : "audio-state"} role="status">
+                  {viewerTalking ? copy.viewerTalking : copy.viewerNotTalking}
+                </p>
+              </div>
+            ) : null}
+            {cameraSession && cameraState === "preview" && alarmPlaying ? (
+              <div className="media-control-card alarm-state-card">
+                <p className="audio-state audio-state-on" role="status">{copy.alarmPlaying}</p>
+                <button className="regenerate-button stop-alarm-button" type="button" onClick={stopAlarm}>{copy.stopAlarm}</button>
+              </div>
+            ) : null}
+            {speakerError ? <div className="camera-error" role="alert"><strong>!</strong><p>{speakerError}</p></div> : null}
+            {microphoneError ? <div className="camera-error" role="alert"><strong>!</strong><p>{microphoneError}</p></div> : null}
             {pairingError ? <div className="camera-error" role="alert"><strong>!</strong><p>{pairingError}</p></div> : null}
             {errorMessage ? <div className="camera-error" role="alert"><strong>!</strong><p>{errorMessage}</p></div> : null}
           </div>
@@ -909,15 +1291,121 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
   const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
   const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected">("connecting");
+  const [speakerReady, setSpeakerReady] = useState(false);
+  const [talkState, setTalkState] = useState<"idle" | "requesting" | "talking" | "error">("idle");
+  const [talkError, setTalkError] = useState("");
+  const [roomAudioNeedsGesture, setRoomAudioNeedsGesture] = useState(false);
+  const [alarmState, setAlarmState] = useState<"idle" | "sending" | "playing" | "stopping" | "finished" | "failed">("idle");
   const [connectionRoute, setConnectionRoute] = useState<"relay" | "direct" | "unknown">("unknown");
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [viewerFrameWidth, setViewerFrameWidth] = useState<number>();
   const liveVideoRef = useRef<HTMLVideoElement>(null);
+  const liveAudioRef = useRef<HTMLAudioElement>(null);
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
+  const viewerSocketRef = useRef<Socket | null>(null);
+  const pendingViewerCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const viewerRemoteDescriptionReadyRef = useRef(false);
+  const talkStreamRef = useRef<MediaStream | null>(null);
+  const talkSenderRef = useRef<RTCRtpSender | null>(null);
+  const talkHeldRef = useRef(false);
+  const liveStateRef = useRef(liveState);
+  const speakerReadyRef = useRef(speakerReady);
+  const alarmRequestIdRef = useRef<string | null>(null);
+  const alarmStopRequestedRef = useRef(false);
+  const alarmTimeoutRef = useRef<number | undefined>(undefined);
   const startupTimeoutRef = useRef<number | undefined>(undefined);
   const lastResumeAttemptRef = useRef(0);
   const scannerVideoRef = useRef<HTMLVideoElement>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  liveStateRef.current = liveState;
+  speakerReadyRef.current = speakerReady;
+
+  const stopTalk = (publish = true) => {
+    const wasActive = talkHeldRef.current || Boolean(talkStreamRef.current);
+    talkHeldRef.current = false;
+    const stream = talkStreamRef.current;
+    const sender = talkSenderRef.current;
+    talkStreamRef.current = null;
+    talkSenderRef.current = null;
+    if (sender) void sender.replaceTrack(null).catch(() => undefined);
+    stream?.getTracks().forEach((track) => track.stop());
+    if (publish && wasActive) viewerSocketRef.current?.emit("rw:talk-status", { talking: false });
+    setTalkState("idle");
+  };
+
+  const stopViewerAlarm = () => {
+    const requestId = alarmRequestIdRef.current;
+    if (!requestId) return;
+    alarmStopRequestedRef.current = true;
+    setAlarmState("stopping");
+    viewerSocketRef.current?.emit("rw:alarm-stop", { requestId });
+  };
+
+  const sendAlarm = () => {
+    if (liveStateRef.current !== "live" || !speakerReadyRef.current || alarmRequestIdRef.current) return;
+    const requestId = createAlarmRequestId();
+    alarmRequestIdRef.current = requestId;
+    alarmStopRequestedRef.current = false;
+    setAlarmState("sending");
+    viewerSocketRef.current?.emit("rw:alarm", { requestId });
+    if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+    alarmTimeoutRef.current = window.setTimeout(() => {
+      if (alarmRequestIdRef.current !== requestId) return;
+      viewerSocketRef.current?.emit("rw:alarm-stop", { requestId });
+      alarmRequestIdRef.current = null;
+      setAlarmState("failed");
+    }, 7_000);
+  };
+
+  const startTalk = async () => {
+    if (talkHeldRef.current || liveStateRef.current !== "live" || !speakerReadyRef.current) return;
+    talkHeldRef.current = true;
+    setTalkError("");
+    setTalkState("requesting");
+    let stream: MediaStream | undefined;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone is unavailable");
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const track = stream.getAudioTracks()[0];
+      const peer = viewerPeerRef.current;
+      const audioTransceiver = peer?.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === "audio");
+      const sender = audioTransceiver?.sender;
+      if (!track || !sender) throw new Error("The live audio channel is unavailable");
+      if (!talkHeldRef.current || liveStateRef.current !== "live" || !speakerReadyRef.current) {
+        stream.getTracks().forEach((activeTrack) => activeTrack.stop());
+        setTalkState("idle");
+        return;
+      }
+      talkStreamRef.current = stream;
+      talkSenderRef.current = sender;
+      track.addEventListener("ended", () => stopTalk(), { once: true });
+      await sender.replaceTrack(track);
+      if (audioTransceiver.direction !== "sendrecv") audioTransceiver.direction = "sendrecv";
+      viewerRemoteDescriptionReadyRef.current = false;
+      const offer = await peer!.createOffer();
+      await peer!.setLocalDescription(offer);
+      viewerSocketRef.current?.emit("rw:signal", { type: "offer", payload: offer });
+      if (!talkHeldRef.current || liveStateRef.current !== "live" || !speakerReadyRef.current) {
+        await sender.replaceTrack(null).catch(() => undefined);
+        stream.getTracks().forEach((activeTrack) => activeTrack.stop());
+        talkStreamRef.current = null;
+        talkSenderRef.current = null;
+        setTalkState("idle");
+        return;
+      }
+      setTalkState("talking");
+      viewerSocketRef.current?.emit("rw:talk-status", { talking: true });
+    } catch {
+      stream?.getTracks().forEach((track) => track.stop());
+      viewerRemoteDescriptionReadyRef.current = Boolean(
+        viewerPeerRef.current?.remoteDescription && viewerPeerRef.current.signalingState === "stable"
+      );
+      if (!talkHeldRef.current) return;
+      stopTalk(false);
+      setTalkState("error");
+      setTalkError(copy.talkError);
+    }
+  };
 
   useEffect(() => {
     if (!scanOpen || inviteValid || pairingState === "paired" || !scannerVideoRef.current) return;
@@ -1057,48 +1545,129 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         if (cancelled) return;
         peer = new RTCPeerConnection({ iceServers });
         viewerPeerRef.current = peer;
+        pendingViewerCandidatesRef.current = [];
+        viewerRemoteDescriptionReadyRef.current = false;
         peer.onconnectionstatechange = () => {
           if (peer?.connectionState === "failed" || peer?.connectionState === "disconnected") {
             if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
             setLiveState("disconnected");
+            stopTalk(false);
           }
         };
         peer.ontrack = (event) => {
-          const video = liveVideoRef.current;
-          if (!video) return;
-          video.srcObject = event.streams[0];
-          void video.play().catch(() => setLiveState("disconnected"));
+          if (event.track.kind === "video") {
+            const video = liveVideoRef.current;
+            if (!video) return;
+            video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+            void video.play().catch(() => setLiveState("disconnected"));
+            return;
+          }
+          if (event.track.kind === "audio") {
+            const audio = liveAudioRef.current;
+            if (!audio) return;
+            audio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+            void audio.play().then(() => setRoomAudioNeedsGesture(false)).catch(() => setRoomAudioNeedsGesture(true));
+          }
         };
         peer.onicecandidate = (event) => { if (event.candidate) socket?.emit("rw:signal", { type: "ice", payload: event.candidate }); };
         socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
+        viewerSocketRef.current = socket;
         socket.on("disconnect", () => {
           if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
+          speakerReadyRef.current = false;
+          setSpeakerReady(false);
+          stopTalk(false);
+          if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+          alarmTimeoutRef.current = undefined;
+          alarmRequestIdRef.current = null;
+          setAlarmState("failed");
           setLiveState("disconnected");
+        });
+        socket.on("rw:speaker-status", (event: { ready: boolean }) => {
+          const ready = event.ready === true;
+          speakerReadyRef.current = ready;
+          setSpeakerReady(ready);
+          if (!ready) {
+            stopTalk(false);
+            stopViewerAlarm();
+          }
+        });
+        socket.on("rw:alarm-result", (event: { requestId: string; status: "started" | "failed" | "ended" }) => {
+          if (!event || event.requestId !== alarmRequestIdRef.current) return;
+          if (event.status === "started") {
+            if (!alarmStopRequestedRef.current) setAlarmState("playing");
+            if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+            alarmTimeoutRef.current = window.setTimeout(() => {
+              if (alarmRequestIdRef.current !== event.requestId) return;
+              viewerSocketRef.current?.emit("rw:alarm-stop", { requestId: event.requestId });
+              alarmRequestIdRef.current = null;
+              setAlarmState("failed");
+            }, 6_500);
+            return;
+          }
+          if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+          alarmTimeoutRef.current = undefined;
+          alarmRequestIdRef.current = null;
+          alarmStopRequestedRef.current = false;
+          setAlarmState(event.status === "ended" ? "finished" : "failed");
         });
         socket.on("rw:peer-left", (event: { role: string }) => {
           if (event.role === "camera") {
             if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+            if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
+            speakerReadyRef.current = false;
+            setSpeakerReady(false);
+            stopTalk(false);
+            alarmRequestIdRef.current = null;
+            if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+            alarmTimeoutRef.current = undefined;
+            setAlarmState("failed");
             setLiveState("disconnected");
           }
         });
         socket.on("rw:viewer-replaced", () => {
           peer?.close();
           if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
+          stopTalk(false);
+          alarmRequestIdRef.current = null;
+          if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+          alarmTimeoutRef.current = undefined;
+          setAlarmState("failed");
           setLiveState("disconnected");
         });
         socket.on("rw:error", () => {
           if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
+          stopTalk(false);
+          alarmRequestIdRef.current = null;
+          if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+          alarmTimeoutRef.current = undefined;
+          setAlarmState("failed");
           setLiveState("disconnected");
         });
         socket.on("rw:signal", async (message: { type: string; payload: RTCSessionDescriptionInit | RTCIceCandidateInit }) => {
           if (!peer) return;
           try {
             if (message.type === "offer") {
+              viewerRemoteDescriptionReadyRef.current = false;
               await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
+              viewerRemoteDescriptionReadyRef.current = true;
               const answer = await peer.createAnswer();
               await peer.setLocalDescription(answer);
               socket?.emit("rw:signal", { type: "answer", payload: answer });
-            } else if (message.type === "ice") await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+            } else if (message.type === "answer") {
+              viewerRemoteDescriptionReadyRef.current = false;
+              await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+              for (const candidate of pendingViewerCandidatesRef.current.splice(0)) await peer.addIceCandidate(candidate);
+              viewerRemoteDescriptionReadyRef.current = true;
+            } else if (message.type === "ice") {
+              if (!viewerRemoteDescriptionReadyRef.current || !peer.remoteDescription) {
+                pendingViewerCandidatesRef.current.push(message.payload as RTCIceCandidateInit);
+              } else await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
+            }
           } catch {
             setLiveState("disconnected");
           }
@@ -1119,7 +1688,12 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       cancelled = true;
       if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
       if (routeTimer !== undefined) window.clearInterval(routeTimer);
+      stopTalk(false);
+      stopViewerAlarm();
+      if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+      alarmTimeoutRef.current = undefined;
       if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+      if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
       if (peer) {
         peer.onconnectionstatechange = null;
         peer.ontrack = null;
@@ -1127,6 +1701,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       peer?.close();
       viewerPeerRef.current = null;
       socket?.disconnect();
+      viewerSocketRef.current = null;
     };
   }, [pairingState, connectionAttempt]);
 
@@ -1190,7 +1765,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         <AppHeader mode="viewer" onHome={onHome} {...settings} />
         <section className={`role-layout viewer-layout${pairingState === "paired" ? " viewer-live-layout" : ""}${liveState === "live" ? " viewer-stream-live" : ""}`} aria-labelledby="viewer-title">
           <div className="role-intro">
-            <button className="text-button" type="button" onClick={onHome}>← {copy.back}</button>
+            <button className="text-button" type="button" onClick={onHome}>← {pairingState === "paired" ? copy.stopViewing : copy.back}</button>
             <p className="eyebrow"><span aria-hidden="true">●</span> {copy.viewerEyebrow}</p>
             <h1 id="viewer-title">{copy.viewerTitle}</h1>
             <p className="intro">{copy.viewerIntro}</p>
@@ -1203,7 +1778,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
 
             {pairingState === "paired" ? (
               <div className="viewer-paired">
-                <video ref={liveVideoRef} style={{ width: viewerFrameWidth ? `${viewerFrameWidth}px` : undefined }} autoPlay playsInline aria-label="Live room video" onPlaying={() => {
+                <video ref={liveVideoRef} style={{ width: viewerFrameWidth ? `${viewerFrameWidth}px` : undefined }} autoPlay muted playsInline aria-label="Live room video" onPlaying={() => {
                   if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
                   startupTimeoutRef.current = undefined;
                   setLiveState("live");
@@ -1211,8 +1786,72 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                   if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
                   setLiveState("disconnected");
                 }} />
+                <audio ref={liveAudioRef} autoPlay playsInline className="visually-hidden" />
                 <h2>{copy.viewerPaired}</h2>
                 <p>{liveState === "disconnected" ? "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
+                {liveState === "live" ? (
+                  <div className="viewer-media-controls">
+                    <div className="talk-control-copy">
+                      <p className="audio-state" role="status" aria-live="polite">
+                        {talkState === "requesting" ? copy.requestingTalk : talkState === "talking" ? copy.talking : speakerReady ? copy.holdToTalk : copy.speakerRequired}
+                      </p>
+                      {talkError ? <p className="talk-error" role="alert">{talkError}</p> : null}
+                    </div>
+                    <button
+                      className={`primary-button hold-to-talk${talkState === "talking" ? " hold-to-talk-active" : ""}`}
+                      type="button"
+                      aria-label={talkState === "talking" ? copy.talking : copy.holdToTalk}
+                      aria-pressed={talkState === "talking"}
+                      disabled={!speakerReady || liveState !== "live"}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.currentTarget.setPointerCapture?.(event.pointerId);
+                        void startTalk();
+                      }}
+                      onPointerUp={() => stopTalk()}
+                      onPointerCancel={() => stopTalk()}
+                      onLostPointerCapture={() => stopTalk()}
+                      onKeyDown={(event) => {
+                        if ((event.code === "Space" || event.code === "Enter") && !event.repeat) {
+                          event.preventDefault();
+                          void startTalk();
+                        }
+                      }}
+                      onKeyUp={(event) => {
+                        if (event.code === "Space" || event.code === "Enter") stopTalk();
+                      }}
+                      onBlur={() => stopTalk()}
+                    >
+                      {talkState === "requesting" ? copy.requestingTalk : talkState === "talking" ? copy.talking : copy.holdToTalk}
+                    </button>
+                    {!speakerReady ? <p className="audio-state">{copy.speakerRequired}</p> : null}
+                  </div>
+                ) : null}
+                {liveState === "live" ? (
+                  <div className="viewer-alarm-controls">
+                    <button
+                      className="primary-button sound-alarm-button"
+                      type="button"
+                      disabled={!speakerReady || alarmState === "sending" || alarmState === "playing" || alarmState === "stopping"}
+                      onClick={sendAlarm}
+                    >
+                      {alarmState === "sending" ? copy.sendingAlarm : alarmState === "playing" ? copy.alarmPlaying : copy.soundAlarm}
+                    </button>
+                    {alarmState === "sending" || alarmState === "playing" || alarmState === "stopping" ? (
+                      <button className="regenerate-button stop-alarm-button" type="button" disabled={alarmState === "stopping"} onClick={stopViewerAlarm}>
+                        {alarmState === "stopping" ? copy.alarmStopping : copy.stopAlarm}
+                      </button>
+                    ) : null}
+                    {alarmState === "finished" ? <p className="audio-state audio-state-on" role="status">{copy.alarmFinished}</p> : null}
+                    {alarmState === "failed" ? <p className="talk-error" role="alert">{copy.alarmFailed}</p> : null}
+                  </div>
+                ) : null}
+                {roomAudioNeedsGesture ? (
+                  <button className="regenerate-button audio-unlock-button" type="button" onClick={() => {
+                    void liveAudioRef.current?.play().then(() => setRoomAudioNeedsGesture(false)).catch(() => setRoomAudioNeedsGesture(true));
+                  }}>{copy.tapToHearAudio}</button>
+                ) : null}
+                <button className="regenerate-button stop-viewing-button" type="button" onClick={onHome}>{copy.stopViewing}</button>
                 {liveState === "disconnected" ? <button className="primary-button viewer-retry-button" type="button" onClick={() => {
                   setLiveState("connecting");
                   setConnectionRoute("unknown");

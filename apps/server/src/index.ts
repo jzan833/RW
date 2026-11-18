@@ -196,6 +196,26 @@ export function createRwServer({
 
   const httpServer = createServer(app);
   const io = new Server(httpServer);
+  const speakerReadySessions = new Set<string>();
+  const activeAlarms = new Map<string, { requestId: string; viewerSocketId: string; timeout?: ReturnType<typeof setTimeout> }>();
+  const clearActiveAlarm = (sessionId: string) => {
+    const activeAlarm = activeAlarms.get(sessionId);
+    if (activeAlarm?.timeout) clearTimeout(activeAlarm.timeout);
+    activeAlarms.delete(sessionId);
+    return activeAlarm;
+  };
+  const expireActiveAlarm = (sessionId: string, requestId: string) => {
+    const activeAlarm = activeAlarms.get(sessionId);
+    if (!activeAlarm || activeAlarm.requestId !== requestId) return;
+    if (activeAlarm.timeout) clearTimeout(activeAlarm.timeout);
+    activeAlarm.timeout = setTimeout(() => {
+      if (activeAlarms.get(sessionId) !== activeAlarm) return;
+      activeAlarms.delete(sessionId);
+      const room = `session:${sessionId}`;
+      io.to(room).emit("rw:alarm-stop", { requestId });
+      io.to(activeAlarm.viewerSocketId).emit("rw:alarm-result", { requestId, status: "failed" });
+    }, 7_000);
+  };
 
   io.use((socket, next) => {
     const auth = socket.handshake.auth as Record<string, unknown>;
@@ -218,6 +238,7 @@ export function createRwServer({
     }
     socket.data.sessionId = sessionId;
     socket.data.role = role;
+    socket.data.roleToken = token;
     next();
   });
 
@@ -234,6 +255,13 @@ export function createRwServer({
         return;
       }
       if (replacement.previousSocketId) {
+        const alarm = activeAlarms.get(sessionId);
+        if (alarm?.viewerSocketId === replacement.previousSocketId) {
+          clearActiveAlarm(sessionId);
+          io.to(room).emit("rw:alarm-stop", { requestId: alarm.requestId });
+          io.to(replacement.previousSocketId).emit("rw:alarm-result", { requestId: alarm.requestId, status: "failed" });
+        }
+        io.to(room).emit("rw:viewer-talking", { talking: false });
         const previousSocket = io.sockets.sockets.get(replacement.previousSocketId);
         previousSocket?.emit("rw:viewer-replaced");
         previousSocket?.disconnect(true);
@@ -242,6 +270,81 @@ export function createRwServer({
     void socket.join(room);
     socket.to(room).emit("rw:peer-joined", { role });
     io.to(room).emit("rw:viewer-count", { count: sessionStore.hasViewerSocket(sessionId) ? 1 : 0 });
+    if (role === "viewer") socket.emit("rw:speaker-status", { ready: speakerReadySessions.has(sessionId) });
+
+    socket.on("rw:speaker-status", (message: unknown) => {
+      if (role !== "camera" || !message || typeof message !== "object") return;
+      if (!sessionStore.authorizeSocket(sessionId, role, socket.data.roleToken as string)) return;
+      const ready = (message as Record<string, unknown>).ready;
+      if (typeof ready !== "boolean") return;
+      if (ready) speakerReadySessions.add(sessionId);
+      else {
+        speakerReadySessions.delete(sessionId);
+        const alarm = clearActiveAlarm(sessionId);
+        if (alarm) {
+          io.to(room).emit("rw:alarm-stop", { requestId: alarm.requestId });
+          io.to(alarm.viewerSocketId).emit("rw:alarm-result", { requestId: alarm.requestId, status: "failed" });
+        }
+        io.to(room).emit("rw:viewer-talking", { talking: false });
+      }
+      io.to(room).emit("rw:speaker-status", { ready });
+    });
+
+    socket.on("rw:talk-status", (message: unknown) => {
+      if (role !== "viewer" || !message || typeof message !== "object") return;
+      if (!sessionStore.authorizeSocket(sessionId, role, socket.data.roleToken as string)) return;
+      const talking = (message as Record<string, unknown>).talking;
+      if (typeof talking !== "boolean" || (talking && !speakerReadySessions.has(sessionId))) return;
+      socket.to(room).emit("rw:viewer-talking", { talking });
+    });
+
+    socket.on("rw:alarm", (message: unknown) => {
+      if (role !== "viewer" || !message || typeof message !== "object") return;
+      if (!sessionStore.authorizeSocket(sessionId, role, socket.data.roleToken as string)) return;
+      const requestId = (message as Record<string, unknown>).requestId;
+      if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId)) return;
+      if (!speakerReadySessions.has(sessionId)) {
+        socket.emit("rw:alarm-result", { requestId, status: "failed" });
+        return;
+      }
+      const activeAlarm = activeAlarms.get(sessionId);
+      if (activeAlarm) {
+        if (activeAlarm.viewerSocketId === socket.id && activeAlarm.requestId === requestId) return;
+        socket.emit("rw:alarm-result", { requestId, status: "failed" });
+        return;
+      }
+      activeAlarms.set(sessionId, { requestId, viewerSocketId: socket.id });
+      expireActiveAlarm(sessionId, requestId);
+      socket.to(room).emit("rw:alarm", { requestId });
+    });
+
+    socket.on("rw:alarm-stop", (message: unknown) => {
+      if (!message || typeof message !== "object") return;
+      if (!sessionStore.authorizeSocket(sessionId, role, socket.data.roleToken as string)) return;
+      const requestId = (message as Record<string, unknown>).requestId;
+      const activeAlarm = activeAlarms.get(sessionId);
+      if (typeof requestId !== "string" || activeAlarm?.requestId !== requestId) return;
+      if (role === "viewer" && activeAlarm.viewerSocketId === socket.id) {
+        socket.to(room).emit("rw:alarm-stop", { requestId });
+      }
+    });
+
+    socket.on("rw:alarm-result", (message: unknown) => {
+      if (role !== "camera" || !message || typeof message !== "object") return;
+      if (!sessionStore.authorizeSocket(sessionId, role, socket.data.roleToken as string)) return;
+      const value = message as Record<string, unknown>;
+      const { requestId, status } = value;
+      if (
+        typeof requestId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,64}$/.test(requestId) ||
+        !(status === "started" || status === "failed" || status === "ended")
+      ) return;
+      const activeAlarm = activeAlarms.get(sessionId);
+      if (activeAlarm?.requestId !== requestId) return;
+      if (status === "started") expireActiveAlarm(sessionId, requestId);
+      else clearActiveAlarm(sessionId);
+      socket.to(room).emit("rw:alarm-result", { requestId, status });
+    });
 
     socket.on("rw:signal", (message: unknown) => {
       if (!message || typeof message !== "object") return;
@@ -253,8 +356,25 @@ export function createRwServer({
     });
 
     socket.on("disconnect", () => {
+      if (role === "camera") {
+        speakerReadySessions.delete(sessionId);
+        const alarm = clearActiveAlarm(sessionId);
+        if (alarm) {
+          io.to(alarm.viewerSocketId).emit("rw:alarm-result", { requestId: alarm.requestId, status: "failed" });
+        }
+        io.to(room).emit("rw:speaker-status", { ready: false });
+        io.to(room).emit("rw:viewer-talking", { talking: false });
+      }
       const isActiveViewer = role !== "viewer" || sessionStore.releaseViewerSocket(sessionId, socket.id);
       if (!isActiveViewer) return;
+      if (role === "viewer") {
+        const alarm = activeAlarms.get(sessionId);
+        if (alarm?.viewerSocketId === socket.id) {
+          clearActiveAlarm(sessionId);
+          socket.to(room).emit("rw:alarm-stop", { requestId: alarm.requestId });
+        }
+        socket.to(room).emit("rw:viewer-talking", { talking: false });
+      }
       socket.to(room).emit("rw:peer-left", { role });
       if (role === "viewer") io.to(room).emit("rw:viewer-count", { count: 0 });
     });

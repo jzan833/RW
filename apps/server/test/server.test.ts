@@ -553,6 +553,213 @@ describe("T10 persistent viewer cookie", () => {
   });
 });
 
+describe("T16 camera speaker status", () => {
+  it("relays readiness from the authenticated camera and clears it on disconnect", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const cookie = viewerCookieHeader(paired).requestHeader;
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const camera = createClient(origin, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(camera);
+    const statuses: boolean[] = [];
+    const viewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: cookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    viewer.on("rw:speaker-status", (event: { ready: boolean }) => statuses.push(event.ready));
+    await waitForSocketConnect(viewer);
+    await vi.waitFor(() => expect(statuses).toContain(false));
+
+    const becameReady = new Promise<void>((resolve) => {
+      const handleStatus = (event: { ready: boolean }) => {
+        if (!event.ready) return;
+        viewer.off("rw:speaker-status", handleStatus);
+        resolve();
+      };
+      viewer.on("rw:speaker-status", handleStatus);
+    });
+    camera.emit("rw:speaker-status", { ready: true });
+    await becameReady;
+    expect(statuses.at(-1)).toBe(true);
+
+    const becameUnavailable = new Promise<void>((resolve) => {
+      const handleStatus = (event: { ready: boolean }) => {
+        if (event.ready) return;
+        viewer.off("rw:speaker-status", handleStatus);
+        resolve();
+      };
+      viewer.on("rw:speaker-status", handleStatus);
+    });
+    camera.disconnect();
+    await becameUnavailable;
+    expect(statuses.at(-1)).toBe(false);
+    viewer.disconnect();
+  });
+
+  it("does not let a viewer publish speaker readiness", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const viewer = createClient(`http://127.0.0.1:${(rwServer.httpServer.address() as AddressInfo).port}`, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: viewerCookieHeader(paired).requestHeader },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(viewer);
+    const statuses: boolean[] = [];
+    viewer.on("rw:speaker-status", (event: { ready: boolean }) => statuses.push(event.ready));
+    viewer.emit("rw:speaker-status", { ready: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(statuses).not.toContain(true);
+    viewer.disconnect();
+  });
+});
+
+describe("T17 authenticated talk status", () => {
+  it("relays talk state only for a paired viewer while the camera speaker is ready", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const cookie = viewerCookieHeader(paired).requestHeader;
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const camera = createClient(origin, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(camera);
+    const viewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: cookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(viewer);
+    const talkingStates: boolean[] = [];
+    camera.on("rw:viewer-talking", (event: { talking: boolean }) => talkingStates.push(event.talking));
+
+    viewer.emit("rw:talk-status", { talking: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(talkingStates).toEqual([]);
+
+    const ready = new Promise<void>((resolve) => {
+      const onSpeakerStatus = (event: { ready: boolean }) => {
+        if (!event.ready) return;
+        viewer.off("rw:speaker-status", onSpeakerStatus);
+        resolve();
+      };
+      viewer.on("rw:speaker-status", onSpeakerStatus);
+    });
+    camera.emit("rw:speaker-status", { ready: true });
+    await ready;
+
+    const started = new Promise<void>((resolve) => camera.once("rw:viewer-talking", (event: { talking: boolean }) => {
+      if (event.talking) resolve();
+    }));
+    viewer.emit("rw:talk-status", { talking: true });
+    await started;
+    const stopped = new Promise<void>((resolve) => camera.once("rw:viewer-talking", (event: { talking: boolean }) => {
+      if (!event.talking) resolve();
+    }));
+    viewer.emit("rw:talk-status", { talking: false });
+    await stopped;
+    expect(talkingStates).toEqual([true, false]);
+    camera.disconnect();
+    viewer.disconnect();
+  });
+});
+
+describe("T18 authenticated alarm control", () => {
+  it("gates alarms on speaker readiness, allows one at a time, and relays start and stop acknowledgements", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const cookie = viewerCookieHeader(paired).requestHeader;
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const camera = createClient(origin, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(camera);
+    const viewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: cookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(viewer);
+
+    const notReady = new Promise<{ requestId: string; status: string }>((resolve) => {
+      viewer.on("rw:alarm-result", (event: { requestId: string; status: string }) => {
+        if (event.requestId === "alarm-0") resolve(event);
+      });
+    });
+    viewer.emit("rw:alarm", { requestId: "alarm-0" });
+    expect(await notReady).toEqual({ requestId: "alarm-0", status: "failed" });
+
+    const ready = new Promise<void>((resolve) => {
+      const onStatus = (event: { ready: boolean }) => {
+        if (!event.ready) return;
+        viewer.off("rw:speaker-status", onStatus);
+        resolve();
+      };
+      viewer.on("rw:speaker-status", onStatus);
+    });
+    camera.emit("rw:speaker-status", { ready: true });
+    await ready;
+
+    const delivered = new Promise<{ requestId: string }>((resolve) => {
+      camera.once("rw:alarm", resolve);
+    });
+    viewer.emit("rw:alarm", { requestId: "alarm-1" });
+    expect(await delivered).toEqual({ requestId: "alarm-1" });
+
+    const duplicate = new Promise<{ requestId: string; status: string }>((resolve) => {
+      viewer.on("rw:alarm-result", (event: { requestId: string; status: string }) => {
+        if (event.requestId === "alarm-2") resolve(event);
+      });
+    });
+    viewer.emit("rw:alarm", { requestId: "alarm-2" });
+    expect(await duplicate).toEqual({ requestId: "alarm-2", status: "failed" });
+
+    const started = new Promise<{ requestId: string; status: string }>((resolve) => {
+      viewer.on("rw:alarm-result", (event: { requestId: string; status: string }) => {
+        if (event.requestId === "alarm-1" && event.status === "started") resolve(event);
+      });
+    });
+    camera.emit("rw:alarm-result", { requestId: "alarm-1", status: "started" });
+    expect(await started).toEqual({ requestId: "alarm-1", status: "started" });
+
+    const stopCommand = new Promise<{ requestId: string }>((resolve) => camera.once("rw:alarm-stop", resolve));
+    viewer.emit("rw:alarm-stop", { requestId: "alarm-1" });
+    expect(await stopCommand).toEqual({ requestId: "alarm-1" });
+    const ended = new Promise<{ requestId: string; status: string }>((resolve) => {
+      viewer.on("rw:alarm-result", (event: { requestId: string; status: string }) => {
+        if (event.requestId === "alarm-1" && event.status === "ended") resolve(event);
+      });
+    });
+    camera.emit("rw:alarm-result", { requestId: "alarm-1", status: "ended" });
+    expect(await ended).toEqual({ requestId: "alarm-1", status: "ended" });
+
+    const secondAlarm = new Promise<{ requestId: string }>((resolve) => camera.once("rw:alarm", resolve));
+    viewer.emit("rw:alarm", { requestId: "alarm-3" });
+    await secondAlarm;
+    const disconnectedStop = new Promise<{ requestId: string }>((resolve) => camera.once("rw:alarm-stop", resolve));
+    viewer.disconnect();
+    expect(await disconnectedStop).toEqual({ requestId: "alarm-3" });
+    camera.disconnect();
+  });
+});
+
 describe("T19 viewer socket re-entry", () => {
   it("replaces a stale socket for the same paired browser and keeps one active viewer", async () => {
     const session = await createMonitoringSession();
