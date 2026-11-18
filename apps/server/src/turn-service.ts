@@ -6,11 +6,21 @@ type IceServer = { urls: string | string[]; username?: string; credential?: stri
 export async function issueIceServers(): Promise<IceServer[]> {
   const clean = (value: string | undefined) => (value ?? "").trim().replace(/^<(.*)>$/, "$1").trim();
   const domain = clean(process.env.METERED_DOMAIN);
+  const credentialApiKey = clean(process.env.METERED_TURN_API_KEY);
   const secret = clean(process.env.METERED_SECRET_KEY);
-  if (!domain || !secret || !/^[a-z0-9-]+\.metered\.live$/i.test(domain)) {
+  if (!domain || (!credentialApiKey && !secret) || !/^[a-z0-9-]+\.metered\.live$/i.test(domain)) {
     throw new Error("TURN configuration unavailable");
   }
   const base = `https://${domain}`;
+
+  if (credentialApiKey) {
+    // A dashboard-provisioned credential is already propagated, avoiding the
+    // provider's up-to-two-minute propagation window on each new session.
+    const iceUrl = new URL("/api/v1/turn/credentials", base);
+    iceUrl.searchParams.set("apiKey", credentialApiKey);
+    return validateIceServers(await providerFetch(iceUrl));
+  }
+
   const credentialUrl = new URL("/api/v1/turn/credential", base);
   credentialUrl.searchParams.set("secretKey", secret);
   const credential = await providerFetch(credentialUrl, {
@@ -23,7 +33,11 @@ export async function issueIceServers(): Promise<IceServer[]> {
   }
   const iceUrl = new URL("/api/v1/turn/credentials", base);
   iceUrl.searchParams.set("apiKey", credential.apiKey);
-  const servers = await providerFetch(iceUrl);
+  return validateIceServers(await providerFetch(iceUrl));
+}
+
+function validateIceServers(value: unknown): IceServer[] {
+  const servers = value;
   if (!Array.isArray(servers) || !servers.length || !servers.every(validIceServer)) {
     throw new Error("TURN ICE shape unavailable");
   }

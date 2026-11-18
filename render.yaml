@@ -18,5 +18,7 @@ services:
         value: "true"
       - key: METERED_DOMAIN
         sync: false
+      - key: METERED_TURN_API_KEY
+        sync: false
       - key: METERED_SECRET_KEY
         sync: false
