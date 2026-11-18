@@ -544,8 +544,7 @@ describe("T17 viewer hold-to-talk", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/viewer-session") return jsonResponse({ status: "paired" });
-      if (url === "/api/viewer-session/id") return jsonResponse({ sessionId: "s".repeat(43) });
-      if (url.startsWith("/api/turn-credentials/")) return jsonResponse({ iceServers: [] });
+      if (url === "/api/viewer-session/connection") return jsonResponse({ sessionId: "s".repeat(43), iceServers: [] });
       return new Response(null, { status: 404 });
     }));
     window.history.replaceState({}, "", "/viewer");
@@ -554,6 +553,8 @@ describe("T17 viewer hold-to-talk", () => {
     await screen.findByText("Viewer paired");
     await waitFor(() => expect(peers).toHaveLength(1));
     fireEvent.playing(screen.getByLabelText("Live room video"));
+    expect(screen.getByRole("region", { name: "Room audio" })).toBeTruthy();
+    expect(screen.getByText("Listen to room audio, hold to talk back, or play an alarm.")).toBeTruthy();
     const talkButton = screen.getByRole("button", { name: "Hold to Talk" });
     expect(talkButton.hasAttribute("disabled")).toBe(true);
     expect(getUserMedia).not.toHaveBeenCalled();
@@ -587,6 +588,70 @@ describe("T17 viewer hold-to-talk", () => {
   });
 });
 
+describe("T21 viewer stop lifecycle", () => {
+  it("shows Monitoring ended and closes the viewer socket when camera monitoring stops", async () => {
+    const peers: Array<{ close: ReturnType<typeof vi.fn> }> = [];
+    class FakePeerConnection {
+      connectionState = "new";
+      ontrack: ((event: unknown) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: (() => void) | null = null;
+      close = vi.fn();
+      constructor() { peers.push(this); }
+      getTransceivers() { return []; }
+      getStats = vi.fn(async () => new Map());
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/viewer-session") return jsonResponse({ status: "paired" });
+      if (url === "/api/viewer-session/connection") return jsonResponse({ sessionId: "s".repeat(43), iceServers: [] });
+      return new Response(null, { status: 404 });
+    }));
+    window.history.replaceState({}, "", "/viewer");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    await waitFor(() => expect(socketHarness.sockets).toHaveLength(1));
+    await waitFor(() => expect(peers).toHaveLength(1));
+    const viewerSocket = socketHarness.sockets[0];
+    act(() => viewerSocket.trigger("rw:session-ended"));
+
+    expect(screen.getAllByText("Monitoring ended")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Stop Viewing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry connection" })).toBeNull();
+    expect(viewerSocket.disconnect).toHaveBeenCalledOnce();
+    expect(peers[0].close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("T22 connection startup", () => {
+  it("warms authorized camera ICE configuration before a viewer pairs", async () => {
+    const { stream } = makeStream();
+    vi.stubGlobal("RTCPeerConnection", class {});
+    installMediaDevices(vi.fn().mockResolvedValue(stream));
+    const payload = sessionPayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (url.startsWith("/api/turn-credentials/")) return jsonResponse({ iceServers: [{ urls: "stun:stun.example.test" }] });
+      return jsonResponse(payload, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+    await screen.findByRole("img", { name: "Viewer pairing QR code" });
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/turn-credentials/"))).toBe(true));
+
+    const iceRequest = fetchMock.mock.calls.find(([input]) => String(input).startsWith("/api/turn-credentials/"));
+    expect(iceRequest?.[1]?.headers).toEqual({ Authorization: `Bearer ${payload.cameraToken}` });
+    expect(socketHarness.sockets[0].handlers.has("rw:peer-joined")).toBe(true);
+  });
+});
+
 describe("T18 viewer sound alarm", () => {
   it("reports alarm playback only after camera acknowledgement and allows either side to stop", async () => {
     class FakePeerConnection {
@@ -604,8 +669,7 @@ describe("T18 viewer sound alarm", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/viewer-session") return jsonResponse({ status: "paired" });
-      if (url === "/api/viewer-session/id") return jsonResponse({ sessionId: "s".repeat(43) });
-      if (url.startsWith("/api/turn-credentials/")) return jsonResponse({ iceServers: [] });
+      if (url === "/api/viewer-session/connection") return jsonResponse({ sessionId: "s".repeat(43), iceServers: [] });
       return new Response(null, { status: 404 });
     }));
     window.history.replaceState({}, "", "/viewer");
@@ -661,6 +725,7 @@ describe("T07 camera pairing display", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
 
     expect(await screen.findByRole("heading", { name: "Pair this viewer" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Audio controls" })).toBeTruthy();
     expect(screen.getByLabelText("Pairing PIN 123456")).toBeTruthy();
     const pairingLink = screen.getByRole("link", { name: "Open pairing page" }) as HTMLAnchorElement;
     const pairingUrl = new URL(pairingLink.href);
@@ -712,6 +777,40 @@ describe("T07 camera pairing display", () => {
     expect(regenerateHeaders.Authorization === `Bearer ${expired.cameraToken}`).toBe(true);
   });
 
+  it("hides the QR and PIN after the viewer connects and keeps them hidden after a disconnect", async () => {
+    const { stream } = makeStream();
+    vi.stubGlobal("RTCPeerConnection", class {});
+    installMediaDevices(vi.fn().mockResolvedValue(stream));
+    const payload = sessionPayload();
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(payload, 201);
+    }));
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+    expect(await screen.findByRole("img", { name: "Viewer pairing QR code" })).toBeTruthy();
+    const cameraSocket = socketHarness.sockets[0];
+    act(() => cameraSocket.trigger("connect"));
+    act(() => cameraSocket.trigger("rw:viewer-paired"));
+    expect(screen.queryByRole("img", { name: "Viewer pairing QR code" })).toBeNull();
+    expect(screen.getByText("The viewer is connecting or can reconnect without scanning again.")).toBeTruthy();
+    act(() => cameraSocket.trigger("rw:viewer-count", { count: 1 }));
+
+    expect(await screen.findByRole("heading", { name: "Viewer paired" })).toBeTruthy();
+    expect(screen.getByText("Viewer connected")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Viewer pairing QR code" })).toBeNull();
+    expect(screen.queryByLabelText("Pairing PIN 123456")).toBeNull();
+
+    act(() => cameraSocket.trigger("rw:viewer-count", { count: 0 }));
+    expect(screen.getByText("The viewer is connecting or can reconnect without scanning again.")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Viewer pairing QR code" })).toBeNull();
+    act(() => cameraSocket.trigger("disconnect"));
+    expect(screen.getByText("Monitoring Interrupted")).toBeTruthy();
+  });
+
   it("revokes the backend session when Stop camera is clicked", async () => {
     const media = makeStream();
     installMediaDevices(vi.fn().mockResolvedValue(media.stream));
@@ -739,6 +838,30 @@ describe("T07 camera pairing display", () => {
     expect(screen.queryByRole("heading", { name: "Pair this viewer" })).toBeNull();
     expect(media.videoTrack.stop).toHaveBeenCalledOnce();
     expect(media.extraTrack.stop).toHaveBeenCalledOnce();
+  });
+});
+
+describe("T20 camera monitoring status", () => {
+  it("shows Monitoring Interrupted when the active camera track ends", async () => {
+    const media = makeStream();
+    vi.stubGlobal("RTCPeerConnection", class {});
+    installMediaDevices(vi.fn().mockResolvedValue(media.stream));
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(sessionPayload(), 201);
+    }));
+    window.history.replaceState({}, "", "/camera");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start camera" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create pairing code" }));
+    const onEnded = media.videoTrack.addEventListener.mock.calls.find(([event]) => event === "ended")?.[1];
+    expect(typeof onEnded).toBe("function");
+    act(() => (onEnded as () => void)());
+
+    expect(screen.getByText("Monitoring Interrupted")).toBeTruthy();
+    expect(screen.queryByText("Monitoring Active")).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 });
 

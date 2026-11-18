@@ -51,6 +51,7 @@ const messages = {
     requestingStatus: "Waiting for camera permission",
     previewStatus: "Local preview on",
     errorStatus: "Camera needs attention",
+    monitoringInterrupted: "Monitoring Interrupted",
     previewOnly: "Preview only — monitoring has not started",
     idleTitle: "Check the room view first",
     idleText: "Camera access starts only after you press Start camera. Microphone access is not requested.",
@@ -68,7 +69,16 @@ const messages = {
     createPairing: "Create pairing code",
     creatingPairing: "Creating secure code…",
     cameraPairingTitle: "Pair this viewer",
+    pairedViewerTitle: "Viewer paired",
+    pairedViewerConnected: "Viewer connected",
+    pairedViewerWaiting: "The viewer is connecting or can reconnect without scanning again.",
+    noViewers: "0 viewers",
+    oneViewer: "1 viewer connected",
     roomAudio: "Room audio",
+    cameraAudioTitle: "Audio controls",
+    cameraAudioHelp: "Microphone starts only when you turn room audio on. Speaker is checked on this camera device.",
+    viewerAudioHelp: "Listen to room audio, hold to talk back, or play an alarm.",
+    audioPlaybackReady: "Audio playback ready",
     microphoneOff: "Microphone Off",
     microphoneOn: "Microphone On",
     enableMicrophone: "Enable room audio",
@@ -132,6 +142,7 @@ const messages = {
     pairingViewer: "Pairing securely…",
     viewerPaired: "Viewer paired",
     viewerPairedHelp: "This browser is authorized. Reconnect if the live picture stops.",
+    monitoringEnded: "Monitoring ended",
     retryConnection: "Retry connection",
     pairingUnavailableViewer: "Pairing failed. Check the QR link and PIN, then try again.",
     pairingLimitedViewer: "Too many attempts. Wait a few minutes, then try again.",
@@ -170,6 +181,7 @@ const messages = {
     requestingStatus: "Camera permission ကို စောင့်နေသည်",
     previewStatus: "Local preview ဖွင့်ထားသည်",
     errorStatus: "Camera ကို စစ်ဆေးရန်လိုသည်",
+    monitoringInterrupted: "Monitoring ပြတ်တောက်နေသည်",
     previewOnly: "Preview သာဖြစ်သည် — monitoring မစတင်သေးပါ",
     idleTitle: "အခန်းမြင်ကွင်းကို အရင်စစ်ပါ",
     idleText: "Start camera နှိပ်မှသာ camera permission တောင်းပါမယ်။ Microphone permission မတောင်းပါ။",
@@ -187,7 +199,16 @@ const messages = {
     createPairing: "Pairing code ထုတ်မယ်",
     creatingPairing: "လုံခြုံသော code ထုတ်နေသည်…",
     cameraPairingTitle: "Viewer ကို Pair လုပ်ပါ",
+    pairedViewerTitle: "Viewer Pair ချိတ်ပြီးပါပြီ",
+    pairedViewerConnected: "Viewer ချိတ်ဆက်ထားသည်",
+    pairedViewerWaiting: "Viewer ချိတ်ဆက်နေသည် သို့မဟုတ် QR ထပ် scan မလုပ်ဘဲ ပြန်ချိတ်နိုင်သည်။",
+    noViewers: "Viewer မရှိသေးပါ",
+    oneViewer: "Viewer ၁ ဦး ချိတ်ဆက်ထားသည်",
     roomAudio: "အခန်းအသံ",
+    cameraAudioTitle: "အသံထိန်းချုပ်မှုများ",
+    cameraAudioHelp: "အခန်းအသံကို ဖွင့်မှသာ Microphone စတင်ပါမယ်။ Speaker ကို ဒီ Camera device မှာ စစ်ဆေးပါ။",
+    viewerAudioHelp: "အခန်းအသံနားထောင်ပါ၊ ဖိထားပြီး ပြန်ပြောပါ သို့မဟုတ် Alarm မြည်စေပါ။",
+    audioPlaybackReady: "အသံဖွင့်ရန် အဆင်သင့်ဖြစ်သည်",
     microphoneOff: "Microphone ပိတ်ထားသည်",
     microphoneOn: "Microphone ဖွင့်ထားသည်",
     enableMicrophone: "အခန်းအသံ ဖွင့်မယ်",
@@ -251,6 +272,7 @@ const messages = {
     pairingViewer: "လုံခြုံစွာ Pair လုပ်နေသည်…",
     viewerPaired: "Viewer Pair လုပ်ပြီးပြီ",
     viewerPairedHelp: "ဒီ browser ကိုခွင့်ပြုပြီးပါပြီ။ Live ပုံရိပ်ရပ်သွားလျှင် ပြန်ချိတ်ဆက်နိုင်ပါတယ်။",
+    monitoringEnded: "Monitoring ရပ်တန့်သွားသည်",
     retryConnection: "ပြန်ချိတ်ဆက်ရန်",
     pairingUnavailableViewer: "Pairing မအောင်မြင်ပါ။ QR link နဲ့ PIN ကိုစစ်ပြီး ပြန်စမ်းပါ။",
     pairingLimitedViewer: "အကြိမ်များလွန်းပါတယ်။ မိနစ်အနည်းငယ်စောင့်ပြီး ပြန်စမ်းပါ။",
@@ -337,11 +359,16 @@ async function loadIceServers(sessionId: string, cameraToken?: string): Promise<
   return Array.isArray(payload.iceServers) ? payload.iceServers : [];
 }
 
-async function getViewerSessionIdHint(): Promise<string> {
-  const response = await fetch("/api/viewer-session/id", { credentials: "include" });
-  if (!response.ok) return "";
-  const payload = await response.json() as { sessionId?: unknown };
-  return typeof payload.sessionId === "string" ? payload.sessionId : "";
+async function getViewerConnectionInfo(): Promise<{ sessionId: string; iceServers: RTCIceServer[] } | undefined> {
+  const response = await fetch("/api/viewer-session/connection", { credentials: "include" });
+  if (response.status === 401) throw new Error("Viewer session ended");
+  if (!response.ok) return undefined;
+  const payload = await response.json() as { sessionId?: unknown; iceServers?: unknown };
+  if (typeof payload.sessionId !== "string" || !opaqueValuePattern.test(payload.sessionId)) return undefined;
+  return {
+    sessionId: payload.sessionId,
+    iceServers: Array.isArray(payload.iceServers) ? payload.iceServers as RTCIceServer[] : []
+  };
 }
 
 function fitVideoFrameWidth(containerWidth: number, videoWidth: number, videoHeight: number, viewportHeight: number, reservedHeight: number) {
@@ -568,6 +595,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const pendingCameraCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const cameraRemoteDescriptionReadyRef = useRef(false);
   const [viewerCount, setViewerCount] = useState(0);
+  const [hasPairedViewer, setHasPairedViewer] = useState(false);
+  const [captureInterrupted, setCaptureInterrupted] = useState(false);
   const [viewerTalking, setViewerTalking] = useState(false);
   const [signalConnected, setSignalConnected] = useState(false);
 
@@ -777,6 +806,19 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   useEffect(() => {
     if (!cameraSession) return;
     if (typeof RTCPeerConnection === "undefined") return;
+    let cameraIceServersRequestedAt = 0;
+    let cameraIceServersPromise: Promise<RTCIceServer[]> | undefined;
+    const getCameraIceServers = () => {
+      if (!cameraIceServersPromise || Date.now() - cameraIceServersRequestedAt >= 30 * 60_000) {
+        cameraIceServersRequestedAt = Date.now();
+        cameraIceServersPromise = loadIceServers(cameraSession.sessionId, cameraSession.cameraToken).catch((error: unknown) => {
+          cameraIceServersPromise = undefined;
+          throw error;
+        });
+      }
+      return cameraIceServersPromise;
+    };
+    void getCameraIceServers().catch(() => undefined);
     const socket = io({ auth: { role: "camera", sessionId: cameraSession.sessionId, token: cameraSession.cameraToken }, transports: ["websocket"] });
     socketRef.current = socket;
     socket.on("connect", () => {
@@ -791,7 +833,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     const makePeer = async () => {
       peerRef.current?.close();
       let iceServers: RTCIceServer[];
-      try { iceServers = await loadIceServers(cameraSession.sessionId, cameraSession.cameraToken); }
+      try { iceServers = await getCameraIceServers(); }
       catch { setPairingError("TURN connection unavailable. Check the connection and retry."); return; }
       if (!socket.connected || !streamRef.current?.getVideoTracks()[0] || streamRef.current.getVideoTracks()[0].readyState !== "live") return;
       const peer = new RTCPeerConnection({ iceServers });
@@ -841,7 +883,12 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         }
       } catch { setPairingError("Live connection failed. Retry pairing."); }
     });
-    socket.on("rw:viewer-count", (event: { count: number }) => setViewerCount(event.count));
+    socket.on("rw:viewer-count", (event: { count: number }) => {
+      const count = event?.count === 1 ? 1 : 0;
+      setViewerCount(count);
+      if (count === 1) setHasPairedViewer(true);
+    });
+    socket.on("rw:viewer-paired", () => setHasPairedViewer(true));
     socket.on("rw:viewer-talking", (event: { talking: boolean }) => setViewerTalking(event.talking));
     socket.on("rw:alarm", (event: { requestId: string }) => {
       const requestId = event?.requestId;
@@ -909,6 +956,8 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     const activeSession = sessionRef.current;
     sessionRef.current = undefined;
     setCameraSession(undefined);
+    setHasPairedViewer(false);
+    setViewerCount(0);
     setPairingState("idle");
     setPairingError("");
     setQrCode("");
@@ -920,6 +969,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     pairingOperationRef.current = operation;
     setPairingState("creating");
     setPairingError("");
+    setHasPairedViewer(false);
 
     try {
       const response = await fetch("/api/monitoring-sessions", {
@@ -993,6 +1043,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     const operation = operationRef.current + 1;
     operationRef.current = operation;
     setCameraState("requesting");
+    setCaptureInterrupted(false);
     setErrorMessage("");
     clearStream();
 
@@ -1018,6 +1069,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       streamRef.current = stream;
       videoTrack?.addEventListener("ended", () => {
         if (!mountedRef.current || streamRef.current !== stream) return;
+        setCaptureInterrupted(true);
         operationRef.current += 1;
         clearPairingSession();
         clearStream();
@@ -1055,12 +1107,15 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     operationRef.current += 1;
     clearPairingSession();
     clearStream();
+    setCaptureInterrupted(false);
     setResolution("");
     setErrorMessage("");
     setCameraState("idle");
   };
 
-  const statusText = cameraSession && cameraState === "preview"
+  const statusText = captureInterrupted
+    ? copy.monitoringInterrupted
+    : cameraSession && cameraState === "preview"
     ? signalConnected ? "Monitoring Active" : "Monitoring Interrupted"
     : cameraState === "requesting"
     ? copy.requestingStatus
@@ -1091,7 +1146,7 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                 <p>{statusText}</p>
               </div>
               {!cameraSession ? <p className="preview-boundary">{copy.previewOnly}</p> : null}
-              {cameraSession ? <p role="status">{viewerCount} viewers</p> : null}
+              {cameraSession ? <p role="status">{viewerCount === 1 ? copy.oneViewer : copy.noViewers}</p> : null}
             </div>
 
             {cameraState === "preview" && devices.length > 0 ? (
@@ -1136,45 +1191,49 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
               )}
             </div>
             {cameraSession && cameraState === "preview" ? (
-              <div className="media-control-card">
-                <div>
-                  <strong>{copy.roomAudio}</strong>
-                  <p className={microphoneOn ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={microphoneOn ? copy.microphoneOn : copy.microphoneOff}>
-                    {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.microphoneOn : copy.microphoneOff}
-                  </p>
+              <section className="camera-audio-console" aria-labelledby="camera-audio-title">
+                <div className="camera-audio-heading">
+                  <h2 id="camera-audio-title">{copy.cameraAudioTitle}</h2>
+                  <p>{copy.cameraAudioHelp}</p>
                 </div>
-                <button className="regenerate-button" type="button" disabled={microphoneRequesting} onClick={() => void toggleMicrophone()}>
-                  {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.disableMicrophone : copy.enableMicrophone}
-                </button>
-              </div>
-            ) : null}
-            {cameraSession && cameraState === "preview" ? (
-              <div className="media-control-card">
-                <div>
-                  <strong>Speaker</strong>
-                  <p className={speakerState === "ready" ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}>
-                    {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}
-                  </p>
-                  <p className="audio-state">{copy.speakerHelp}</p>
+                <div className="camera-audio-grid">
+                  <div className="media-control-card">
+                    <div>
+                      <strong>{copy.roomAudio}</strong>
+                      <p className={microphoneOn ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={microphoneOn ? copy.microphoneOn : copy.microphoneOff}>
+                        {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.microphoneOn : copy.microphoneOff}
+                      </p>
+                    </div>
+                    <button className="regenerate-button" type="button" disabled={microphoneRequesting} onClick={() => void toggleMicrophone()}>
+                      {microphoneRequesting ? copy.microphoneStarting : microphoneOn ? copy.disableMicrophone : copy.enableMicrophone}
+                    </button>
+                  </div>
+                  <div className="media-control-card">
+                    <div>
+                      <strong>Speaker</strong>
+                      <p className={speakerState === "ready" ? "audio-state audio-state-on" : "audio-state"} role="status" aria-label={speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}>
+                        {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.speakerReady : copy.speakerNotReady}
+                      </p>
+                      <p className="audio-state">{copy.speakerHelp}</p>
+                    </div>
+                    <button className="regenerate-button" type="button" disabled={speakerState === "checking"} onClick={() => void enableSpeaker()}>
+                      {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.testSpeakerAgain : copy.enableSpeaker}
+                    </button>
+                  </div>
+                  <div className="media-control-card talk-status-card">
+                    <strong>Talk status</strong>
+                    <p className={viewerTalking ? "audio-state audio-state-on" : "audio-state"} role="status">
+                      {viewerTalking ? copy.viewerTalking : copy.viewerNotTalking}
+                    </p>
+                  </div>
+                  {alarmPlaying ? (
+                    <div className="media-control-card alarm-state-card">
+                      <p className="audio-state audio-state-on" role="status">{copy.alarmPlaying}</p>
+                      <button className="regenerate-button stop-alarm-button" type="button" onClick={stopAlarm}>{copy.stopAlarm}</button>
+                    </div>
+                  ) : null}
                 </div>
-                <button className="regenerate-button" type="button" disabled={speakerState === "checking"} onClick={() => void enableSpeaker()}>
-                  {speakerState === "checking" ? copy.speakerChecking : speakerState === "ready" ? copy.testSpeakerAgain : copy.enableSpeaker}
-                </button>
-              </div>
-            ) : null}
-            {cameraSession && cameraState === "preview" ? (
-              <div className="media-control-card talk-status-card">
-                <strong>Talk status</strong>
-                <p className={viewerTalking ? "audio-state audio-state-on" : "audio-state"} role="status">
-                  {viewerTalking ? copy.viewerTalking : copy.viewerNotTalking}
-                </p>
-              </div>
-            ) : null}
-            {cameraSession && cameraState === "preview" && alarmPlaying ? (
-              <div className="media-control-card alarm-state-card">
-                <p className="audio-state audio-state-on" role="status">{copy.alarmPlaying}</p>
-                <button className="regenerate-button stop-alarm-button" type="button" onClick={stopAlarm}>{copy.stopAlarm}</button>
-              </div>
+              </section>
             ) : null}
             {speakerError ? <div className="camera-error" role="alert"><strong>!</strong><p>{speakerError}</p></div> : null}
             {microphoneError ? <div className="camera-error" role="alert"><strong>!</strong><p>{microphoneError}</p></div> : null}
@@ -1218,7 +1277,15 @@ function CameraScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
           </section>
         </section>
 
-        {cameraSession ? (
+        {cameraSession && hasPairedViewer ? (
+          <section className="pairing-complete-panel" aria-labelledby="pairing-complete-title">
+            <span className="pairing-complete-mark" aria-hidden="true">✓</span>
+            <div>
+              <h2 id="pairing-complete-title">{copy.pairedViewerTitle}</h2>
+              <p role="status">{viewerCount === 1 ? copy.pairedViewerConnected : copy.pairedViewerWaiting}</p>
+            </div>
+          </section>
+        ) : cameraSession ? (
           <section className={`pairing-console${inviteExpired ? " pairing-console-expired" : ""}`} aria-labelledby="pairing-title">
             <div className="pairing-console-header">
               <div>
@@ -1290,7 +1357,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const [scannerError, setScannerError] = useState("");
   const [pairingState, setPairingState] = useState<ViewerPairingState>("idle");
   const [viewerError, setViewerError] = useState(queryInviteId && !opaqueValuePattern.test(queryInviteId) ? copy.invalidInviteViewer : "");
-  const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected">("connecting");
+  const [liveState, setLiveState] = useState<"connecting" | "live" | "disconnected" | "ended">("connecting");
   const [speakerReady, setSpeakerReady] = useState(false);
   const [talkState, setTalkState] = useState<"idle" | "requesting" | "talking" | "error">("idle");
   const [talkError, setTalkError] = useState("");
@@ -1309,6 +1376,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
   const talkSenderRef = useRef<RTCRtpSender | null>(null);
   const talkHeldRef = useRef(false);
   const liveStateRef = useRef(liveState);
+  const sessionEndedRef = useRef(false);
   const speakerReadyRef = useRef(speakerReady);
   const alarmRequestIdRef = useRef<string | null>(null);
   const alarmStopRequestedRef = useRef(false);
@@ -1499,6 +1567,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     if (pairingState !== "paired") return;
     let wasHidden = document.visibilityState === "hidden";
     const reconnect = () => {
+      if (sessionEndedRef.current) return;
       const now = Date.now();
       if (now - lastResumeAttemptRef.current < 1_000) return;
       lastResumeAttemptRef.current = now;
@@ -1530,36 +1599,39 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
       setLiveState("disconnected");
       return;
     }
+    sessionEndedRef.current = false;
     let socket: Socket | undefined;
     let cancelled = false;
     let peer: RTCPeerConnection | null = null;
     let routeTimer: number | undefined;
     startupTimeoutRef.current = window.setTimeout(() => {
-      setLiveState((state) => state === "live" ? state : "disconnected");
-    }, 30_000);
+      setLiveState((state) => state === "live" || state === "ended" ? state : "disconnected");
+    }, 20_000);
     void (async () => {
       try {
-        const sessionId = await getViewerSessionIdHint();
-        if (!sessionId) throw new Error("Viewer session unavailable");
-        const iceServers = await loadIceServers(sessionId);
+        const connectionInfo = await getViewerConnectionInfo();
+        if (!connectionInfo) throw new Error("Viewer session unavailable");
         if (cancelled) return;
-        peer = new RTCPeerConnection({ iceServers });
+        peer = new RTCPeerConnection({ iceServers: connectionInfo.iceServers });
         viewerPeerRef.current = peer;
         pendingViewerCandidatesRef.current = [];
         viewerRemoteDescriptionReadyRef.current = false;
         peer.onconnectionstatechange = () => {
-          if (peer?.connectionState === "failed" || peer?.connectionState === "disconnected") {
+          if (!sessionEndedRef.current && (peer?.connectionState === "failed" || peer?.connectionState === "disconnected")) {
             if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
             setLiveState("disconnected");
             stopTalk(false);
           }
         };
         peer.ontrack = (event) => {
+          if (sessionEndedRef.current) return;
           if (event.track.kind === "video") {
             const video = liveVideoRef.current;
             if (!video) return;
             video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-            void video.play().catch(() => setLiveState("disconnected"));
+            void video.play().catch(() => {
+              if (!sessionEndedRef.current) setLiveState("disconnected");
+            });
             return;
           }
           if (event.track.kind === "audio") {
@@ -1573,6 +1645,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
         socket = io({ auth: { role: "viewer" }, transports: ["websocket"] });
         viewerSocketRef.current = socket;
         socket.on("disconnect", () => {
+          if (sessionEndedRef.current) return;
           if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
           if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
           speakerReadyRef.current = false;
@@ -1583,6 +1656,30 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
           alarmRequestIdRef.current = null;
           setAlarmState("failed");
           setLiveState("disconnected");
+        });
+        socket.on("rw:session-ended", () => {
+          sessionEndedRef.current = true;
+          if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
+          startupTimeoutRef.current = undefined;
+          if (alarmTimeoutRef.current !== undefined) window.clearTimeout(alarmTimeoutRef.current);
+          alarmTimeoutRef.current = undefined;
+          alarmRequestIdRef.current = null;
+          alarmStopRequestedRef.current = false;
+          if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
+          if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
+          if (peer) {
+            peer.onconnectionstatechange = null;
+            peer.ontrack = null;
+            peer.close();
+            peer = null;
+          }
+          viewerPeerRef.current = null;
+          speakerReadyRef.current = false;
+          setSpeakerReady(false);
+          stopTalk(false);
+          setAlarmState("idle");
+          setLiveState("ended");
+          socket?.disconnect();
         });
         socket.on("rw:speaker-status", (event: { ready: boolean }) => {
           const ready = event.ready === true;
@@ -1613,7 +1710,7 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
           setAlarmState(event.status === "ended" ? "finished" : "failed");
         });
         socket.on("rw:peer-left", (event: { role: string }) => {
-          if (event.role === "camera") {
+          if (event.role === "camera" && !sessionEndedRef.current) {
             if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
             if (liveAudioRef.current) liveAudioRef.current.srcObject = null;
             speakerReadyRef.current = false;
@@ -1682,7 +1779,9 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
             if (local?.candidateType) setConnectionRoute(local.candidateType === "relay" ? "relay" : "direct");
           }
         }, 2_000);
-      } catch { if (!cancelled) setLiveState("disconnected"); }
+      } catch (error) {
+        if (!cancelled) setLiveState(error instanceof Error && error.message === "Viewer session ended" ? "ended" : "disconnected");
+      }
     })();
     return () => {
       cancelled = true;
@@ -1751,9 +1850,11 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
     setScannedInviteId(foundInvite);
   };
 
-  const statusText = pairingState === "paired" ? liveState === "live" ? "Live" : liveState === "disconnected" ? "Disconnected" : "Connecting" : copy.waitingPair;
+  const statusText = pairingState === "paired"
+    ? liveState === "ended" ? copy.monitoringEnded : liveState === "live" ? "Live" : liveState === "disconnected" ? "Disconnected" : "Connecting"
+    : copy.waitingPair;
   const statusClass = pairingState === "paired"
-    ? liveState === "live" ? "status-live" : liveState === "disconnected" ? "status-error" : "status-requesting"
+    ? liveState === "live" ? "status-live" : liveState === "disconnected" || liveState === "ended" ? "status-error" : "status-requesting"
     : viewerError || scannerError
       ? "status-error"
       : "status-idle";
@@ -1779,17 +1880,32 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
             {pairingState === "paired" ? (
               <div className="viewer-paired">
                 <video ref={liveVideoRef} style={{ width: viewerFrameWidth ? `${viewerFrameWidth}px` : undefined }} autoPlay muted playsInline aria-label="Live room video" onPlaying={() => {
+                  if (sessionEndedRef.current) return;
                   if (startupTimeoutRef.current !== undefined) window.clearTimeout(startupTimeoutRef.current);
                   startupTimeoutRef.current = undefined;
                   setLiveState("live");
                 }} onStalled={() => {
+                  if (sessionEndedRef.current) return;
                   if (liveVideoRef.current) liveVideoRef.current.srcObject = null;
                   setLiveState("disconnected");
                 }} />
                 <audio ref={liveAudioRef} autoPlay playsInline className="visually-hidden" />
                 <h2>{copy.viewerPaired}</h2>
-                <p>{liveState === "disconnected" ? "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
+                <p>{liveState === "ended" ? copy.monitoringEnded : liveState === "disconnected" ? "Connection unavailable. Retry to reconnect without pairing again." : copy.viewerPairedHelp}</p>
                 {liveState === "live" ? (
+                  <section className="viewer-audio-console" aria-label={copy.roomAudio}>
+                    <div className="viewer-audio-heading">
+                      <div>
+                        <strong>{copy.roomAudio}</strong>
+                        <p>{copy.viewerAudioHelp}</p>
+                      </div>
+                      {roomAudioNeedsGesture ? (
+                        <button className="regenerate-button audio-unlock-button" type="button" onClick={() => {
+                          void liveAudioRef.current?.play().then(() => setRoomAudioNeedsGesture(false)).catch(() => setRoomAudioNeedsGesture(true));
+                        }}>{copy.tapToHearAudio}</button>
+                      ) : <span className="audio-playback-ready" role="status">{copy.audioPlaybackReady}</span>}
+                    </div>
+                    <div className="viewer-audio-actions">
                   <div className="viewer-media-controls">
                     <div className="talk-control-copy">
                       <p className="audio-state" role="status" aria-live="polite">
@@ -1826,8 +1942,6 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                     </button>
                     {!speakerReady ? <p className="audio-state">{copy.speakerRequired}</p> : null}
                   </div>
-                ) : null}
-                {liveState === "live" ? (
                   <div className="viewer-alarm-controls">
                     <button
                       className="primary-button sound-alarm-button"
@@ -1845,11 +1959,8 @@ function ViewerScreen({ onHome, ...settings }: { onHome: () => void } & ScreenSe
                     {alarmState === "finished" ? <p className="audio-state audio-state-on" role="status">{copy.alarmFinished}</p> : null}
                     {alarmState === "failed" ? <p className="talk-error" role="alert">{copy.alarmFailed}</p> : null}
                   </div>
-                ) : null}
-                {roomAudioNeedsGesture ? (
-                  <button className="regenerate-button audio-unlock-button" type="button" onClick={() => {
-                    void liveAudioRef.current?.play().then(() => setRoomAudioNeedsGesture(false)).catch(() => setRoomAudioNeedsGesture(true));
-                  }}>{copy.tapToHearAudio}</button>
+                    </div>
+                  </section>
                 ) : null}
                 <button className="regenerate-button stop-viewing-button" type="button" onClick={onHome}>{copy.stopViewing}</button>
                 {liveState === "disconnected" ? <button className="primary-button viewer-retry-button" type="button" onClick={() => {

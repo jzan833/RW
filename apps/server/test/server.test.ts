@@ -154,6 +154,55 @@ describe("T06 monitoring session lifecycle", () => {
     expect(stopAgain.status).toBe(404);
   });
 
+  it("notifies an active viewer when the camera stops monitoring", async () => {
+    const session = await createMonitoringSession();
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+    const viewerCookie = viewerCookieHeader(paired).requestHeader;
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const camera = createClient(origin, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    const viewer = createClient(origin, {
+      auth: { role: "viewer" },
+      extraHeaders: { Cookie: viewerCookie },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await Promise.all([waitForSocketConnect(camera), waitForSocketConnect(viewer)]);
+    const sessionEnded = new Promise<void>((resolve) => viewer.once("rw:session-ended", resolve));
+
+    const stopped = await fetch(`${origin}/api/monitoring-sessions/${session.sessionId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${session.cameraToken}` }
+    });
+
+    expect(stopped.status).toBe(204);
+    await expect(sessionEnded).resolves.toBeUndefined();
+    camera.disconnect();
+    viewer.disconnect();
+  });
+
+  it("notifies the camera as soon as an invite is paired", async () => {
+    const session = await createMonitoringSession();
+    const address = rwServer.httpServer.address() as AddressInfo;
+    const camera = createClient(`http://127.0.0.1:${address.port}`, {
+      auth: { role: "camera", sessionId: session.sessionId, token: session.cameraToken },
+      reconnection: false,
+      transports: ["websocket"]
+    });
+    await waitForSocketConnect(camera);
+    const pairedEvent = new Promise<void>((resolve) => camera.once("rw:viewer-paired", resolve));
+
+    const paired = await pairViewer(rwServer, session.invite.inviteId, session.invite.pin);
+
+    expect(paired.status).toBe(200);
+    await expect(pairedEvent).resolves.toBeUndefined();
+    camera.disconnect();
+  });
+
   it("does not restore a session in a fresh server instance", async () => {
     const session = await createMonitoringSession();
     const replacement = createRwServer({ sessionSecret: "test-only-restart-secret" });
@@ -437,6 +486,15 @@ describe("T14 short-lived TURN authorization", () => {
       const endpoint = `http://127.0.0.1:${address.port}/api/turn-credentials/${session.sessionId}`;
       expect((await fetch(endpoint)).status).toBe(404);
       expect(issueTurn).not.toHaveBeenCalled();
+      const viewerConnection = await fetch(`http://127.0.0.1:${address.port}/api/viewer-session/connection`, {
+        headers: { Cookie: cookie.requestHeader }
+      });
+      expect(viewerConnection.status).toBe(200);
+      expect(viewerConnection.headers.get("cache-control")).toBe("no-store");
+      await expect(viewerConnection.json()).resolves.toEqual({
+        sessionId: session.sessionId,
+        iceServers: [{ urls: "turn:relay.example.test", username: "temporary", credential: "temporary" }]
+      });
       const viewer = await fetch(endpoint, { headers: { Cookie: cookie.requestHeader } });
       expect(viewer.status).toBe(200);
       expect(viewer.headers.get("cache-control")).toBe("no-store");
@@ -446,7 +504,31 @@ describe("T14 short-lived TURN authorization", () => {
         method: "DELETE", headers: { Authorization: `Bearer ${session.cameraToken}` }
       });
       expect((await fetch(endpoint, { headers: { Cookie: cookie.requestHeader } })).status).toBe(404);
+      expect((await fetch(`http://127.0.0.1:${address.port}/api/viewer-session/connection`, {
+        headers: { Cookie: cookie.requestHeader }
+      })).status).toBe(401);
       expect(issueTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      instance.io.close();
+      await new Promise<void>((resolve) => instance.httpServer.close(() => resolve()));
+    }
+  });
+
+  it("returns a direct ICE configuration when temporary TURN credentials are unavailable", async () => {
+    const instance = createRwServer({ issueTurn: vi.fn().mockRejectedValue(new Error("provider unavailable")) });
+    instance.httpServer.listen(0, "127.0.0.1");
+    await once(instance.httpServer, "listening");
+    try {
+      const session = await createMonitoringSession(instance);
+      const paired = await pairViewer(instance, session.invite.inviteId, session.invite.pin);
+      const cookie = viewerCookieHeader(paired).requestHeader;
+      const address = instance.httpServer.address() as AddressInfo;
+      const connection = await fetch(`http://127.0.0.1:${address.port}/api/viewer-session/connection`, {
+        headers: { Cookie: cookie }
+      });
+
+      expect(connection.status).toBe(200);
+      await expect(connection.json()).resolves.toEqual({ sessionId: session.sessionId, iceServers: [] });
     } finally {
       instance.io.close();
       await new Promise<void>((resolve) => instance.httpServer.close(() => resolve()));

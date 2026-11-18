@@ -38,6 +38,15 @@ export function createRwServer({
   const app = express();
   const sessionStore = new MonitoringSessionStore({ secret: sessionSecret, now });
   const turnCache = new Map<string, { iceServers: Awaited<ReturnType<typeof issueIceServers>>; validUntil: number }>();
+  const loadCachedIceServers = async (sessionId: string) => {
+    const current = (now ?? Date.now)();
+    let cached = turnCache.get(sessionId);
+    if (!cached || cached.validUntil <= current) {
+      cached = { iceServers: await issueTurn(), validUntil: current + 45 * 60_000 };
+      turnCache.set(sessionId, cached);
+    }
+    return cached.iceServers;
+  };
   const pairingIpLimiter = new SlidingWindowRateLimiter({
     limit: PAIRING_IP_LIMIT,
     windowMs: PAIRING_IP_WINDOW_MS,
@@ -92,7 +101,15 @@ export function createRwServer({
       return;
     }
 
-    turnCache.delete(credentials.sessionId);
+    const sessionId = credentials.sessionId;
+    const room = `session:${sessionId}`;
+    turnCache.delete(sessionId);
+    speakerReadySessions.delete(sessionId);
+    const alarm = clearActiveAlarm(sessionId);
+    io.to(room).emit("rw:session-ended");
+    io.to(room).emit("rw:speaker-status", { ready: false });
+    io.to(room).emit("rw:viewer-talking", { talking: false });
+    if (alarm) io.to(alarm.viewerSocketId).emit("rw:alarm-result", { requestId: alarm.requestId, status: "failed" });
 
     response.status(204).end();
   });
@@ -117,6 +134,7 @@ export function createRwServer({
     }
 
     setViewerCookie(response, paired.sessionId, paired.viewerToken);
+    io.to(`session:${paired.sessionId}`).emit("rw:viewer-paired");
     response.json({ status: "paired" });
   });
 
@@ -145,6 +163,23 @@ export function createRwServer({
     response.json({ sessionId: credentials.sessionId });
   });
 
+  app.get("/api/viewer-session/connection", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const credentials = viewerCredentials(request.headers.cookie);
+    if (!credentials || !sessionStore.validateViewer(credentials.sessionId, credentials.viewerToken)) {
+      clearViewerCookie(response);
+      response.status(401).json({ error: "Viewer session unavailable" });
+      return;
+    }
+    try {
+      const iceServers = await loadCachedIceServers(credentials.sessionId);
+      response.json({ sessionId: credentials.sessionId, iceServers });
+    } catch {
+      // Direct ICE can still work when temporary relay credentials are unavailable.
+      response.json({ sessionId: credentials.sessionId, iceServers: [] });
+    }
+  });
+
   app.get("/api/turn-credentials/:sessionId", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     const sessionId = request.params.sessionId;
@@ -158,13 +193,8 @@ export function createRwServer({
       return;
     }
     try {
-      const current = (now ?? Date.now)();
-      let cached = turnCache.get(sessionId);
-      if (!cached || cached.validUntil <= current) {
-        cached = { iceServers: await issueTurn(), validUntil: current + 45 * 60_000 };
-        turnCache.set(sessionId, cached);
-      }
-      response.json({ iceServers: cached.iceServers, expiresInSeconds: 3600 });
+      const iceServers = await loadCachedIceServers(sessionId);
+      response.json({ iceServers, expiresInSeconds: 3600 });
     } catch {
       response.status(503).json({ error: "TURN unavailable" });
     }
